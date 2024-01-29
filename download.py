@@ -30,27 +30,27 @@ OPTIONS = {
         "thumbnail": CHANNEL_VIDEO_OUTTMPL,
     },
     "postprocessors": [
-        {
-            "actions": [
-                (
-                    yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-                    "KV Narayanaswamy",
-                    "%(meta_artist)s",
-                ),
-                (
-                    yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-                    "KV Narayanaswamy",
-                    "%(meta_album_artist)s",
-                ),
-                (
-                    yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-                    "%(title)s",
-                    "%(meta_album)s",
-                ),
-            ],
-            "key": "MetadataParser",
-            "when": "pre_process",
-        },
+        # {
+        #     "actions": [
+        #         (
+        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+        #             "KV Narayanaswamy",
+        #             "%(meta_artist)s",
+        #         ),
+        #         (
+        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+        #             "KV Narayanaswamy",
+        #             "%(meta_album_artist)s",
+        #         ),
+        #         (
+        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
+        #             "%(title)s",
+        #             "%(meta_album)s",
+        #         ),
+        #     ],
+        #     "key": "MetadataParser",
+        #     "when": "pre_process",
+        # },
         {"format": "jpg", "key": "FFmpegThumbnailsConvertor", "when": "before_dl"},
         {
             "key": "FFmpegExtractAudio",
@@ -105,6 +105,7 @@ def download_playlist(playlist_url, title_filter):
     options["matchtitle"] = title_filter
 
     ydl = yt_dlp.YoutubeDL(options)
+    ydl.add_post_processor(SetChapterTitleAsMetadata())
     ydl.download([playlist_url])
 
 
