@@ -1,5 +1,5 @@
 
-from title_processor import SetChapterTitleAsMetadata
+from title_processor import SetFileMetadata
 
 import yt_dlp
 
@@ -96,7 +96,9 @@ VIDEO_CHANNELS = [
     "ShriramVasudevanMusic",
 ]
 
-TEST_URL = "https://www.youtube.com/watch?v=CuroQPMKUmY"
+TEST_URL = "https://www.youtube.com/watch?v=2vMIBgu9P4I"
+
+#"https://www.youtube.com/watch?v=CuroQPMKUmY"
 
 
 def download_playlist(playlist_url, title_filter):
@@ -105,7 +107,7 @@ def download_playlist(playlist_url, title_filter):
     options["matchtitle"] = title_filter
 
     ydl = yt_dlp.YoutubeDL(options)
-    ydl.add_post_processor(SetChapterTitleAsMetadata())
+    ydl.add_post_processor(SetFileMetadata())
     ydl.download([playlist_url])
 
 
