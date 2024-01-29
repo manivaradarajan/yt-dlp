@@ -13,8 +13,7 @@ class SetFileMetadata(PostProcessor):
 
     def __init__(self, downloader=None, **kwargs):
         super(SetFileMetadata, self).__init__(downloader, **kwargs)
-        md = CarnaticConnectMetadata()
-        self.channel_metadata[md.channel] = md
+        self.channel_metadata[CarnaticConnectMetadata.CHANNEL] = CarnaticConnectMetadata()
 
     def run(self, info):
         if info['ext'] == 'mp3':

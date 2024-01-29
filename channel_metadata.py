@@ -23,8 +23,10 @@ class CarnaticConnectMetadata(ChannelMetadata):
     TRACK_PREFIX = r'^(\d+) '
     MAIN_ARTIST_MATCH = r'^(.*?) -'
 
+    CHANNEL = "Carnatic Connect"
+
     def __init__(self):
-        super(CarnaticConnectMetadata, self).__init__("Carnatic Connect")
+        super(CarnaticConnectMetadata, self).__init__(CarnaticConnectMetadata.CHANNEL)
 
     def set_metadata(self, filepath, album_title, is_chapter=False):
         audio_file = mp3.MP3(filepath, ID3=id3.ID3)
