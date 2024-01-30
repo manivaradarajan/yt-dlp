@@ -1,13 +1,12 @@
-
 from title_processor import SetFileMetadata
 
 import yt_dlp
 
-TEST = True
-
 CHANNEL_OUTTMPL = "%(channel)s/%(title)s.%(ext)s"
 CHANNEL_VIDEO_OUTTMPL = "%(channel)s/%(title)s/%(title)s.%(ext)s"
-CHANNEL_VIDEO_CHAPTER_OUTTMPL = "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
+CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
+    "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
+)
 
 TITLE_FILTER_DEFAULT = "K V Narayanaswamy"
 
@@ -96,21 +95,24 @@ VIDEO_CHANNELS = [
     "ShriramVasudevanMusic",
 ]
 
-TEST_URL = "https://www.youtube.com/watch?v=2vMIBgu9P4I"
 
-#"https://www.youtube.com/watch?v=CuroQPMKUmY"
-
-
-def download_playlist(playlist_url, title_filter):
+def download_playlist():
     options = OPTIONS
     options.update(PLAYLIST_OPTIONS)
-    options["matchtitle"] = title_filter
+    # options["matchtitle"] = title_filter
 
     ydl = yt_dlp.YoutubeDL(options)
     ydl.add_post_processor(SetFileMetadata())
-    ydl.download([playlist_url])
+    ydl.download(
+        [
+            #"https://www.youtube.com/watch?v=UR-yN-efsqM",  # Shriram Vasudevan
+            #"https://www.youtube.com/watch?v=2vMIBgu9P4I",  # Carnatic Connect
+            #"https://www.youtube.com/watch?v=tVjo1tBdBU4", # Vaak
+            "https://www.youtube.com/watch?v=rU8bnikF-Og", # Nadabhrnga
+        ]
+    )
 
 
 # TODO: Remove once final
 if __name__ == "__main__":
-    download_playlist(TEST_URL, TITLE_FILTER_DEFAULT)
+    download_playlist()

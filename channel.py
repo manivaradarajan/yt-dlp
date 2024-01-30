@@ -22,24 +22,33 @@ class SongMetadata:
 
 
 class Channel(abc.ABC):
-    def __init__(self, channel):
-        self.channel = channel
+    # The name of the channel.
+    name = None
+
+    def __init__(self, channel_name):
+        self.name = channel_name
 
     @abstractmethod
     def song_metadata(self, filepath, album_title, is_chapter=False):
         pass
 
 
-class CarnaticConnect(Channel):
-    NUMERIC_PREFIX = r"^[\s0-9\. ]+"
-    TRACK_PREFIX = r"^(\d+) "
-    MAIN_ARTIST_MATCH = r"^(.*?) -"
+class CarnaticChannel(Channel):
+    # Matches all numbers, spaces and the '.' at the beginning of a string.
+    _NUMERIC_PREFIX = r"^[\s0-9\. ]+"
+    # The track is always at the beginning of the string, before a space.
+    _TRACK_PREFIX = r"^(\d+) "
 
-    CHANNEL = "Carnatic Connect"
+    # The main artist is always at the beginning of the string before "-".
+    # Example: "Madurai Mani Iyer - Wedding Concert, 1950’s"
+    _main_artist_match = r"^(.*?) -"
+
     GENRE = "Carnatic"
 
-    def __init__(self):
-        super(CarnaticConnect, self).__init__(CarnaticConnect.CHANNEL)
+    def __init__(self, channel, **kwargs):
+        super(CarnaticChannel, self).__init__(channel)
+        if 'main_artist_match' in kwargs:
+            self._main_artist_match = kwargs['main_artist_match']
 
     def song_metadata(self, filepath, album_title, is_chapter=False):
         # Extract the filename from the full path
@@ -50,12 +59,12 @@ class CarnaticConnect(Channel):
         song_title = None
         if is_chapter:
             # Strip off numeric prefix from title, which is there for chapters.
-            song_title = re.sub(self.NUMERIC_PREFIX, "", filename_no_ext)
+            song_title = re.sub(self._NUMERIC_PREFIX, "", filename_no_ext)
         else:
             song_title = album_title
 
         # Artist and Album Artist
-        artist_match = re.match(self.MAIN_ARTIST_MATCH, album_title)
+        artist_match = re.match(self._main_artist_match, album_title)
         artist = None
         if artist_match:
             artist = artist_match.group(1)
@@ -65,17 +74,32 @@ class CarnaticConnect(Channel):
 
         # Extract track number from filename.
         track = None
-        track_match = re.match(self.TRACK_PREFIX, filename_no_ext)
+        track_match = re.match(self._TRACK_PREFIX, filename_no_ext)
         if track_match:
             track = track_match.group(1)
 
         return SongMetadata(
             artist=artist,
             album_title=album_title,
-            channel=CarnaticConnect.CHANNEL,
+            channel=self.name,
             song_title=song_title,
             track=track,
             year=year,
-            genre=CarnaticConnect.GENRE
+            genre=CarnaticChannel.GENRE
         )
+
+
+
+CHANNELS = [
+    CarnaticChannel("Carnatic Connect"),
+    CarnaticChannel("Balu Karthikeyan"),
+    CarnaticChannel(u"नादभृङ्ग Nādabhṛṅga"),
+    CarnaticChannel("Shriram Vasudevan"),
+    # The main artist is always at the beginning of the string before "-".
+    # Example: "Madurai Mani Iyer | Wedding Concert, 1950’s"
+    CarnaticChannel("Vaak", main_artist_match=r"^(.*?) \|")
+]
+
+
+
 

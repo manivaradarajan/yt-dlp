@@ -6,7 +6,8 @@ import yt_dlp
 from mutagen import id3, mp3
 from yt_dlp.postprocessor.common import PostProcessor
 
-from channel import CarnaticConnect, Channel, SongMetadata
+import channel
+from channel import Channel, SongMetadata
 
 
 class SetFileMetadata(PostProcessor):
@@ -15,10 +16,10 @@ class SetFileMetadata(PostProcessor):
 
     def __init__(self, downloader=None, **kwargs):
         super(SetFileMetadata, self).__init__(downloader, **kwargs)
-        self._add_channel(CarnaticConnect())
+        [self._add_channel(c) for c in channel.CHANNELS]
 
     def _add_channel(self, channel: Channel):
-        self._channels[channel.CHANNEL] = channel
+        self._channels[channel.name] = channel
 
     def _set_song_metadata(self, filepath, song_metadata):
         audio_file = mp3.MP3(filepath, ID3=id3.ID3)
