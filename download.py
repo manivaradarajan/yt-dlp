@@ -10,20 +10,21 @@ CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
     "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
 )
 
-
+# Specifies matching patterns for titles. Videos matching any of these patterns will be downloaded.
 TITLE_PATTERN_LIST = [
-    r"Ariya[k]?udi",          # Ariyakudi
-    r"K\s?V\s?Narayanaswamy", # KVN
-    r"Madurai Mani",          # Madurai Mani
+    r"Ariya[k]?udi",  # Ariyakudi
+    r"K\s?V\s?Narayanaswamy",  # KVN
+    r"Madurai Mani",  # Madurai Mani
 ]
 
 
 def any_regex_matches(input_string, regex_list):
+    """Returns None if the input_string matches any pattern in regex_list, or an error string otherwise."""
     for regex_pattern in regex_list:
         match = re.search(regex_pattern, input_string)
         if match:
             return None
-    return 'Title doesn\'t match any specified artist'
+    return "'%s' doesn't match any artist in the list" % input_string
 
 
 def title_filter(info_dict):
@@ -69,9 +70,6 @@ OPTIONS = {
     "writedescription": True,
     "writeinfojson": True,
     "writethumbnail": True,
-    "writedescription": True,
-    "writeinfojson": True,
-    "writethumbnail": True,
     "split_chapters": True,
     "merge_output_format": "mp4",
     "extractaudio": True,
@@ -87,14 +85,16 @@ OPTIONS = {
 def download_playlist():
     ydl = yt_dlp.YoutubeDL(OPTIONS)
     ydl.add_post_processor(SetFileMetadata())
-    # Download the video and retrieve information
-    info_dict = ydl.download([
-        "https://www.youtube.com/@BaluKarthikeyan/videos",
-        "https://www.youtube.com/@CarnaticConnect/videos",
-        "https://www.youtube.com/@Nadabhrnga/videos"
-        "https://www.youtube.com/@ShriramVasudevanMusic/videos",
-        "https://www.youtube.com/@Vaak_Foundation/videos",
-    ])
+    # Download videos and retrieve information.
+    info_dict = ydl.download(
+        [
+            "https://www.youtube.com/@BaluKarthikeyan/videos",
+            "https://www.youtube.com/@CarnaticConnect/videos",
+            "https://www.youtube.com/@Nadabhrnga/videos"
+            "https://www.youtube.com/@ShriramVasudevanMusic/videos",
+            "https://www.youtube.com/@Vaak_Foundation/videos",
+        ]
+    )
 
 
 # TODO: Remove once final
