@@ -1,6 +1,8 @@
-from title_processor import SetFileMetadata
+import re
 
 import yt_dlp
+
+from title_processor import SetFileMetadata
 
 CHANNEL_OUTTMPL = "%(channel)s/%(title)s.%(ext)s"
 CHANNEL_VIDEO_OUTTMPL = "%(channel)s/%(title)s/%(title)s.%(ext)s"
@@ -8,9 +10,26 @@ CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
     "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
 )
 
-TITLE_FILTER_DEFAULT = "K V Narayanaswamy"
 
-CHANNEL_TO_TITLE_DICT_OVERRIDE_DICT = {"BaluKarthikeyan": "KV Narayanaswamy"}
+TITLE_PATTERN_LIST = [
+    r"Ariya[k]?udi",          # Ariyakudi
+    r"K\s?V\s?Narayanaswamy", # KVN
+    r"Madurai Mani",          # Madurai Mani
+]
+
+
+def any_regex_matches(input_string, regex_list):
+    for regex_pattern in regex_list:
+        match = re.search(regex_pattern, input_string)
+        if match:
+            return None
+    return 'Title doesn\'t match any specified artist'
+
+
+def title_filter(info_dict):
+    title = info_dict.get("title", "")
+    return any_regex_matches(title, TITLE_PATTERN_LIST)
+
 
 # Define options for the download.
 # Derived from: ytp-dl's cli_to_api.py tool.
@@ -29,27 +48,6 @@ OPTIONS = {
         "thumbnail": CHANNEL_VIDEO_OUTTMPL,
     },
     "postprocessors": [
-        # {
-        #     "actions": [
-        #         (
-        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-        #             "KV Narayanaswamy",
-        #             "%(meta_artist)s",
-        #         ),
-        #         (
-        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-        #             "KV Narayanaswamy",
-        #             "%(meta_album_artist)s",
-        #         ),
-        #         (
-        #             yt_dlp.postprocessor.metadataparser.MetadataParserPP.interpretter,
-        #             "%(title)s",
-        #             "%(meta_album)s",
-        #         ),
-        #     ],
-        #     "key": "MetadataParser",
-        #     "when": "pre_process",
-        # },
         {"format": "jpg", "key": "FFmpegThumbnailsConvertor", "when": "before_dl"},
         {
             "key": "FFmpegExtractAudio",
@@ -81,36 +79,22 @@ OPTIONS = {
     "embedthumbnail": True,
     "embedmetadata": True,
     "addmetadata": True,
-}
-
-PLAYLIST_OPTIONS = {
     "yesplaylist": True,
+    "match_filter": title_filter,
 }
-
-
-# Video channels to download
-VIDEO_CHANNELS = [
-    "BaluKarthikeyan",
-    "CarnaticConnect" "Nadabhrnga",
-    "ShriramVasudevanMusic",
-]
 
 
 def download_playlist():
-    options = OPTIONS
-    options.update(PLAYLIST_OPTIONS)
-    # options["matchtitle"] = title_filter
-
-    ydl = yt_dlp.YoutubeDL(options)
+    ydl = yt_dlp.YoutubeDL(OPTIONS)
     ydl.add_post_processor(SetFileMetadata())
-    ydl.download(
-        [
-            #"https://www.youtube.com/watch?v=UR-yN-efsqM",  # Shriram Vasudevan
-            #"https://www.youtube.com/watch?v=2vMIBgu9P4I",  # Carnatic Connect
-            #"https://www.youtube.com/watch?v=tVjo1tBdBU4", # Vaak
-            "https://www.youtube.com/watch?v=rU8bnikF-Og", # Nadabhrnga
-        ]
-    )
+    # Download the video and retrieve information
+    info_dict = ydl.download([
+        "https://www.youtube.com/@BaluKarthikeyan/videos",
+        "https://www.youtube.com/@CarnaticConnect/videos",
+        "https://www.youtube.com/@Nadabhrnga/videos"
+        "https://www.youtube.com/@ShriramVasudevanMusic/videos",
+        "https://www.youtube.com/@Vaak_Foundation/videos",
+    ])
 
 
 # TODO: Remove once final
