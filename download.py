@@ -1,4 +1,5 @@
 import re
+import argparse
 
 import yt_dlp
 
@@ -18,18 +19,14 @@ TITLE_PATTERN_LIST = [
 ]
 
 
-def any_regex_matches(input_string, regex_list):
-    """Returns None if the input_string matches any pattern in regex_list, or an error string otherwise."""
-    for regex_pattern in regex_list:
-        match = re.search(regex_pattern, input_string)
+def title_filter(info_dict):
+    """Returns None if info_dict['title'] matches any pattern in TITLE_PATTERN_LIST, or an error string otherwise."""
+    title = info_dict.get("title", "")
+    for regex_pattern in TITLE_PATTERN_LIST:
+        match = re.search(regex_pattern, title)
         if match:
             return None
-    return "'%s' doesn't match any artist in the list" % input_string
-
-
-def title_filter(info_dict):
-    title = info_dict.get("title", "")
-    return any_regex_matches(title, TITLE_PATTERN_LIST)
+    return "'%s' doesn't match any artist in the list" % title
 
 
 # Define options for the download.
@@ -45,7 +42,6 @@ OPTIONS = {
         "default": CHANNEL_OUTTMPL,
         "chapter": CHANNEL_VIDEO_CHAPTER_OUTTMPL,
         "description": CHANNEL_VIDEO_OUTTMPL,
-        "infojson": CHANNEL_VIDEO_OUTTMPL,
         "thumbnail": CHANNEL_VIDEO_OUTTMPL,
     },
     "postprocessors": [
@@ -68,9 +64,7 @@ OPTIONS = {
     ],
     "retries": 10,
     "writedescription": True,
-    "writeinfojson": True,
     "writethumbnail": True,
-    "split_chapters": True,
     "merge_output_format": "mp4",
     "extractaudio": True,
     "audioformat": "mp3",
@@ -82,21 +76,53 @@ OPTIONS = {
 }
 
 
-def download_playlist():
-    ydl = yt_dlp.YoutubeDL(OPTIONS)
+def download_videos():
+    parser = argparse.ArgumentParser()
+
+    # Add the output directory argument
+    parser.add_argument(
+        "-o",
+        "--output-directory",
+        default=".",  # Default output directory (current directory)
+        help="The directory where the downloaded files will be saved. Default: %(default)s",
+    )
+    parser.add_argument(
+        "--split-chapters",
+        action="store_false",
+        default=True,
+        help="Whether to split the extracted audio into chapters (individual audio files). Default: %(default)s",
+    )
+
+    # Parse the arguments
+    args = parser.parse_args()
+
+    # Use the output directory
+    output_dir = args.output_directory
+    print(f"Output will be saved to: {output_dir}")
+
+    options = OPTIONS
+    options["outtmpl"] = {
+        "default": f"{output_dir}/" + CHANNEL_OUTTMPL,
+        "chapter": f"{output_dir}/" + CHANNEL_VIDEO_CHAPTER_OUTTMPL,
+        "description": f"{output_dir}/" + CHANNEL_VIDEO_OUTTMPL,
+        "thumbnail": f"{output_dir}/" + CHANNEL_VIDEO_OUTTMPL,
+    }
+    options["split_chapters"]: args.split_chapters
+
+    ydl = yt_dlp.YoutubeDL(options)
     ydl.add_post_processor(SetFileMetadata())
-    # Download videos and retrieve information.
+    # Download videos and/or playlists here.
     info_dict = ydl.download(
         [
             "https://www.youtube.com/@BaluKarthikeyan/videos",
-            "https://www.youtube.com/@CarnaticConnect/videos",
-            "https://www.youtube.com/@Nadabhrnga/videos"
-            "https://www.youtube.com/@ShriramVasudevanMusic/videos",
-            "https://www.youtube.com/@Vaak_Foundation/videos",
+            # "https://www.youtube.com/@CarnaticConnect/videos",
+            # "https://www.youtube.com/@Nadabhrnga/videos"
+            # "https://www.youtube.com/@ShriramVasudevanMusic/videos",
+            # "https://www.youtube.com/@Vaak_Foundation/videos",
         ]
     )
 
 
 # TODO: Remove once final
 if __name__ == "__main__":
-    download_playlist()
+    download_videos()
