@@ -1,8 +1,9 @@
-import re
 import argparse
+import re
 
 import yt_dlp
 
+from channel import CarnaticChannel
 from title_processor import SetFileMetadata
 
 CHANNEL_OUTTMPL = "%(channel)s/%(title)s.%(ext)s"
@@ -109,16 +110,27 @@ def download_videos():
     }
     options["split_chapters"]: args.split_chapters
 
+    # Channels to register.
+    channels = [
+        CarnaticChannel("Carnatic Connect"),
+        CarnaticChannel("Balu Karthikeyan"),
+        CarnaticChannel("नादभृङ्ग Nādabhṛṅga"),
+        CarnaticChannel("Shriram Vasudevan"),
+        # The main artist is always at the beginning of the string before "-".
+        # Example: "Madurai Mani Iyer | Wedding Concert, 1950’s"
+        CarnaticChannel("Vaak", main_artist_match=r"^(.*?) \|"),
+    ]
+
     ydl = yt_dlp.YoutubeDL(options)
-    ydl.add_post_processor(SetFileMetadata())
+    ydl.add_post_processor(SetFileMetadata(channels=channels))
     # Download videos and/or playlists here.
     info_dict = ydl.download(
         [
             "https://www.youtube.com/@BaluKarthikeyan/videos",
-            # "https://www.youtube.com/@CarnaticConnect/videos",
-            # "https://www.youtube.com/@Nadabhrnga/videos"
-            # "https://www.youtube.com/@ShriramVasudevanMusic/videos",
-            # "https://www.youtube.com/@Vaak_Foundation/videos",
+            "https://www.youtube.com/@CarnaticConnect/videos",
+            "https://www.youtube.com/@Nadabhrnga/videos"
+            "https://www.youtube.com/@ShriramVasudevanMusic/videos",
+            "https://www.youtube.com/@Vaak_Foundation/videos",
         ]
     )
 

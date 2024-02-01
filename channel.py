@@ -47,8 +47,8 @@ class CarnaticChannel(Channel):
 
     def __init__(self, channel, **kwargs):
         super(CarnaticChannel, self).__init__(channel)
-        if 'main_artist_match' in kwargs:
-            self._main_artist_match = kwargs['main_artist_match']
+        if "main_artist_match" in kwargs:
+            self._main_artist_match = kwargs["main_artist_match"]
 
     def song_metadata(self, filepath, album_title, is_chapter=False):
         # Extract the filename from the full path
@@ -85,21 +85,5 @@ class CarnaticChannel(Channel):
             song_title=song_title,
             track=track,
             year=year,
-            genre=CarnaticChannel.GENRE
+            genre=CarnaticChannel.GENRE,
         )
-
-
-
-CHANNELS = [
-    CarnaticChannel("Carnatic Connect"),
-    CarnaticChannel("Balu Karthikeyan"),
-    CarnaticChannel(u"नादभृङ्ग Nādabhṛṅga"),
-    CarnaticChannel("Shriram Vasudevan"),
-    # The main artist is always at the beginning of the string before "-".
-    # Example: "Madurai Mani Iyer | Wedding Concert, 1950’s"
-    CarnaticChannel("Vaak", main_artist_match=r"^(.*?) \|")
-]
-
-
-
-
