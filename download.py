@@ -4,7 +4,7 @@ import re
 import yt_dlp
 
 from channel import CarnaticChannel
-from title_processor import SetFileMetadata
+from metadata_processor import SetFileMetadata
 
 CHANNEL_OUTTMPL = "%(channel)s/%(title)s.%(ext)s"
 CHANNEL_VIDEO_OUTTMPL = "%(channel)s/%(title)s/%(title)s.%(ext)s"
@@ -14,9 +14,9 @@ CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
 
 # Specifies matching patterns for titles. Videos matching any of these patterns will be downloaded.
 TITLE_PATTERN_LIST = [
-    r"Ariya[k]?udi",  # Ariyakudi
+    #    r"Ariya[k]?udi",  # Ariyakudi
     r"K\s?V\s?Narayanaswamy",  # KVN
-    r"Madurai Mani",  # Madurai Mani
+    #    r"Madurai Mani",  # Madurai Mani
 ]
 
 

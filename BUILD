@@ -3,7 +3,7 @@ py_binary(
     srcs = [
         "channel.py",
         "download.py",
-        "title_processor.py",
+        "metadata_processor.py",
     ],
     main = "download.py",
 )
