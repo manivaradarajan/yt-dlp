@@ -3,6 +3,7 @@ import re
 
 import yt_dlp
 
+import config
 from channel import CarnaticChannel
 from metadata_processor import SetFileMetadata
 
@@ -12,18 +13,11 @@ CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
     "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
 )
 
-# Specifies matching patterns for titles. Videos matching any of these patterns will be downloaded.
-TITLE_PATTERN_LIST = [
-    #    r"Ariya[k]?udi",  # Ariyakudi
-    r"K\s?V\s?Narayanaswamy",  # KVN
-    #    r"Madurai Mani",  # Madurai Mani
-]
-
 
 def title_filter(info_dict):
     """Returns None if info_dict['title'] matches any pattern in TITLE_PATTERN_LIST, or an error string otherwise."""
     title = info_dict.get("title", "")
-    for regex_pattern in TITLE_PATTERN_LIST:
+    for regex_pattern in config.TITLE_PATTERNS:
         match = re.search(regex_pattern, title)
         if match:
             return None
@@ -124,15 +118,7 @@ def download_videos():
     ydl = yt_dlp.YoutubeDL(options)
     ydl.add_post_processor(SetFileMetadata(channels=channels))
     # Download videos and/or playlists here.
-    info_dict = ydl.download(
-        [
-            "https://www.youtube.com/@BaluKarthikeyan/videos",
-            "https://www.youtube.com/@CarnaticConnect/videos",
-            "https://www.youtube.com/@Nadabhrnga/videos"
-            "https://www.youtube.com/@ShriramVasudevanMusic/videos",
-            "https://www.youtube.com/@Vaak_Foundation/videos",
-        ]
-    )
+    info_dict = ydl.download(config.URLS)
 
 
 # TODO: Remove once final
