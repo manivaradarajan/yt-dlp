@@ -23,11 +23,6 @@ black *.py
 mypy *.py
 ```
 
-**Build with Bazel:**
-```bash
-bazel build //download
-```
-
 There is no test suite.
 
 ## Architecture

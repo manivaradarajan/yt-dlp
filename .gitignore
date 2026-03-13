@@ -1,0 +1,14 @@
+# Bazel
+bazel-*
+MODULE.bazel
+MODULE.bazel.lock
+
+# Python
+__pycache__/
+*.pyc
+
+# Output
+out/
+
+# OS
+.DS_Store

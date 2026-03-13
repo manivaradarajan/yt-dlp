@@ -73,7 +73,6 @@ automatically, downloads the full stream first, then clips with ffmpeg.
 ```bash
 black *.py      # format
 mypy *.py       # type check
-bazel build //download  # build
 ```
 
 ## Architecture
