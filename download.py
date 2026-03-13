@@ -17,13 +17,6 @@ import config
 from channel import CarnaticChannel
 from metadata_processor import SetFileMetadata
 
-# yt-dlp output filename templates.
-CHANNEL_OUTTMPL = "%(channel)s/%(title)s.%(ext)s"
-CHANNEL_VIDEO_OUTTMPL = "%(channel)s/%(title)s/%(title)s.%(ext)s"
-CHANNEL_VIDEO_CHAPTER_OUTTMPL = (
-    "%(channel)s/%(title)s/%(section_number)s %(section_title)s.%(ext)s"
-)
-
 # yt-dlp live_status values that indicate a broadcast/DVR stream.
 # These streams use DASH/DVR format and don't support mid-stream seeking.
 _BROADCAST_LIVE_STATUSES = ("is_live", "was_live", "post_live")
@@ -142,11 +135,7 @@ OPTIONS = {
     "concurrent_fragment_downloads": 8,
     "ignoreerrors": "only_download",
     "merge_output_format": "mp4",
-    "outtmpl": {
-        "default": CHANNEL_OUTTMPL,
-        "chapter": CHANNEL_VIDEO_CHAPTER_OUTTMPL,
-        "thumbnail": CHANNEL_VIDEO_OUTTMPL,
-    },
+
     "postprocessors": [
         {"format": "jpg", "key": "FFmpegThumbnailsConvertor", "when": "before_dl"},
         {
@@ -189,10 +178,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Output directory for downloaded files. Default: %(default)s",
     )
     parser.add_argument(
-        "--split-chapters",
+        "--no-split-chapters",
         action="store_false",
+        dest="split_chapters",
         default=True,
-        help="Split extracted audio into per-chapter files. Default: %(default)s",
+        help="Disable splitting extracted audio into per-chapter files",
     )
     parser.add_argument("--url", help="Download a single video instead of configured channels")
     parser.add_argument("--start", help="Clip start time, e.g. 00:10:00")
@@ -456,6 +446,5 @@ def download_videos():
         run_post_clip(capturer, args.start, args.end)
 
 
-# TODO: Remove once final
 if __name__ == "__main__":
     download_videos()

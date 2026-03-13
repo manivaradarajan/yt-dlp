@@ -1,82 +1,100 @@
-import abc
+"""Channel definitions for per-channel metadata extraction.
+
+Each Channel subclass knows how to parse a video title and filename into a
+SongMetadata dataclass, which is used by SetFileMetadata to write ID3 tags.
+"""
 import os
 import re
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-
-import mutagen
-from mutagen import id3, mp3
 
 
 @dataclass(frozen=True)
 class SongMetadata:
-    """Dataclass representing metadata for an audio file extracted from a YouTube video."""
+    """Metadata for an audio file extracted from a YouTube video."""
 
     album_title: str
     channel: str
     song_title: str
     artist: str = None
-    track: int = None
-    year: int = None
+    track: str = None
+    year: list = None
     genre: str = None
 
 
-class Channel(abc.ABC):
-    # The name of the channel.
-    name = None
+class Channel(ABC):
+    """Abstract base class for a YouTube channel with metadata extraction logic."""
 
-    def __init__(self, channel_name):
-        self.name = channel_name
+    def __init__(self, name: str):
+        self.name = name
 
     @abstractmethod
-    def song_metadata(self, filepath, album_title, is_chapter=False):
-        pass
+    def song_metadata(self, filepath: str, album_title: str, is_chapter: bool = False) -> SongMetadata:
+        """Extract song metadata from a downloaded file path and video title.
+
+        Args:
+            filepath: Path to the downloaded audio file.
+            album_title: The YouTube video title, used as the album name.
+            is_chapter: True if this file is a chapter split from a larger video.
+
+        Returns:
+            A SongMetadata instance populated from the filename and title.
+        """
 
 
 class CarnaticChannel(Channel):
-    # Matches all numbers, spaces and the '.' at the beginning of a string.
-    _NUMERIC_PREFIX = r"^[\s0-9\. ]+"
-    # The track is always at the beginning of the string, before a space.
-    _TRACK_PREFIX = r"^(\d+) "
+    """Channel handler for Carnatic classical music channels.
 
-    # The main artist is always at the beginning of the string before "-".
-    # Example: "Madurai Mani Iyer - Wedding Concert, 1950’s"
-    _main_artist_match = r"^(.*?) -"
+    Parses artist, track number, and year from the video title and filename
+    using configurable regex patterns.
+    """
+
+    # Matches leading numbers, spaces, and dots (e.g. chapter prefixes like "01 ").
+    _NUMERIC_PREFIX = r"^[\s0-9\. ]+"
+    # Track number is a leading integer followed by a space.
+    _TRACK_PREFIX = r"^(\d+) "
+    # Default: artist is everything before the first " -" in the title.
+    # Example: "Madurai Mani Iyer - Wedding Concert, 1950's"
+    _DEFAULT_ARTIST_MATCH = r"^(.*?) -"
 
     GENRE = "Carnatic"
 
-    def __init__(self, channel, **kwargs):
-        super(CarnaticChannel, self).__init__(channel)
-        if "main_artist_match" in kwargs:
-            self._main_artist_match = kwargs["main_artist_match"]
+    def __init__(self, channel: str, main_artist_match: str = None):
+        """Initialise the channel, optionally overriding the artist regex.
 
-    def song_metadata(self, filepath, album_title, is_chapter=False):
-        # Extract the filename from the full path
-        filename = os.path.basename(filepath)
-        # Strip off the file extension
-        filename_no_ext, _ = os.path.splitext(filename)
+        Args:
+            channel: The YouTube channel name (must match yt-dlp's channel field).
+            main_artist_match: Regex with one capture group for the artist name.
+                Defaults to matching everything before " -" in the title.
+        """
+        super().__init__(channel)
+        self._main_artist_match = main_artist_match or self._DEFAULT_ARTIST_MATCH
 
-        song_title = None
-        if is_chapter:
-            # Strip off numeric prefix from title, which is there for chapters.
-            song_title = re.sub(self._NUMERIC_PREFIX, "", filename_no_ext)
-        else:
-            song_title = album_title
+    def song_metadata(self, filepath: str, album_title: str, is_chapter: bool = False) -> SongMetadata:
+        """Extract song metadata from a downloaded file path and video title.
 
-        # Artist and Album Artist
+        Args:
+            filepath: Path to the downloaded audio file.
+            album_title: The YouTube video title, used as the album name.
+            is_chapter: True if this file is a chapter split from a larger video.
+
+        Returns:
+            A SongMetadata instance populated from the filename and title.
+        """
+        filename_no_ext = os.path.splitext(os.path.basename(filepath))[0]
+
+        # For chapters, strip the leading track-number prefix to get the song title.
+        song_title = (
+            re.sub(self._NUMERIC_PREFIX, "", filename_no_ext) if is_chapter else album_title
+        )
+
         artist_match = re.match(self._main_artist_match, album_title)
-        artist = None
-        if artist_match:
-            artist = artist_match.group(1)
+        artist = artist_match.group(1) if artist_match else None
 
-        # Year
         year = re.findall(r"((?:19|20)\d\d)", album_title)
 
-        # Extract track number from filename.
-        track = None
         track_match = re.match(self._TRACK_PREFIX, filename_no_ext)
-        if track_match:
-            track = track_match.group(1)
+        track = track_match.group(1) if track_match else None
 
         return SongMetadata(
             artist=artist,
