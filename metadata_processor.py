@@ -1,14 +1,33 @@
 """Postprocessor that writes ID3 tags to downloaded MP3 files.
 
-After yt-dlp extracts audio, SetFileMetadata looks up the registered Channel
-handler by channel name and uses it to derive and write ID3 tags via mutagen.
+After yt-dlp extracts audio, ``SetFileMetadata`` looks up the registered
+``Channel`` handler by its YouTube handle and uses it to derive and write ID3
+tags via mutagen.
 """
+
 import os
 
 from mutagen import id3, mp3
 from yt_dlp.postprocessor.common import PostProcessor
 
 from channel import Channel, SongMetadata
+
+
+def _normalize_handle(uploader_id: str) -> str:
+    """Ensure a yt-dlp ``uploader_id`` value carries the ``@`` prefix.
+
+    yt-dlp may omit the ``@`` from ``uploader_id`` for some channels, so we
+    normalise it before looking up the handler dict.
+
+    Args:
+        uploader_id: The raw ``uploader_id`` string from the yt-dlp info dict.
+
+    Returns:
+        The handle with a leading ``@``, e.g. ``@CarnaticConnect``.
+    """
+    if uploader_id and not uploader_id.startswith("@"):
+        return f"@{uploader_id}"
+    return uploader_id
 
 
 class SetFileMetadata(PostProcessor):
@@ -23,11 +42,9 @@ class SetFileMetadata(PostProcessor):
         """
         super().__init__(downloader, **kwargs)
         self._channels: dict[str, Channel] = {}
-        if not channels:
-            print("No channels specified. May not set id3 tags correctly.")
-            return
-        for channel in channels:
-            self._channels[channel.name] = channel
+        for channel in (channels or []):
+            # Key by handle so we can look up via yt-dlp's uploader_id field.
+            self._channels[channel.handle] = channel
 
     def _set_song_metadata(self, filepath: str, song_metadata: SongMetadata) -> None:
         """Write ID3 tags to an MP3 file.
@@ -78,17 +95,27 @@ class SetFileMetadata(PostProcessor):
         if info["ext"] != "mp3":
             return [], info
 
-        channel_name = info.get("channel", "")
-        handler = self._channels.get(channel_name)
+        # uploader_id is the channel handle (e.g. "CarnaticConnect" or "@CarnaticConnect").
+        uploader_id = info.get("uploader_id", "")
+        handle = _normalize_handle(uploader_id)
+        handler = self._channels.get(handle)
         if not handler:
-            print(f"Warning: Channel '{channel_name}' not registered, skipping ID3 tags.")
+            # Only warn when channels were registered but this handle isn't among them
+            # (genuine misconfiguration). Silence when no channels were registered at
+            # all — expected for urls-only configs and single-video mode.
+            if self._channels:
+                print(
+                    f"Warning: Channel handle '{handle}' not registered, skipping ID3 tags."
+                )
             return [], info
 
         md = handler.song_metadata(info["filepath"], info["title"])
         self._set_song_metadata(info["filepath"], md)
 
         for chapter in info.get("chapters", []):
-            chapter_md = handler.song_metadata(chapter["filepath"], info["title"], is_chapter=True)
+            chapter_md = handler.song_metadata(
+                chapter["filepath"], info["title"], is_chapter=True
+            )
             self._set_song_metadata(chapter["filepath"], chapter_md)
 
         return [], info
