@@ -13,6 +13,8 @@ import pytest
 
 from download import (
     OPTIONS,
+    DeleteUnsplitAudio,
+    WriteChapterPlaylist,
     configure_video_mode,
     load_configs,
     make_title_filter,
@@ -20,7 +22,6 @@ from download import (
     resolve_configs,
     video_format,
 )
-
 
 # ---------------------------------------------------------------------------
 # parse_time
@@ -74,7 +75,9 @@ def test_video_format_no_height():
 
 
 def test_video_format_with_height():
-    assert video_format("1080") == "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+    assert (
+        video_format("1080") == "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,3 +162,43 @@ def test_resolve_configs_duplicate_allowed():
     """Comma-separated duplicate names each produce an entry."""
     result = resolve_configs("carnatic,carnatic")
     assert len(result) == 2
+
+
+# ---------------------------------------------------------------------------
+# WriteChapterPlaylist — chapters=None guard
+# ---------------------------------------------------------------------------
+
+_BASE_INFO = {"filepath": "/tmp/x.mp3"}
+
+
+def test_write_chapter_playlist_chapters_none():
+    """chapters=None does not raise TypeError; no files scheduled for deletion."""
+    pp = WriteChapterPlaylist()
+    files_to_delete, _ = pp.run({**_BASE_INFO, "chapters": None})
+    assert files_to_delete == []
+
+
+def test_write_chapter_playlist_chapters_absent():
+    """Missing chapters key does not raise TypeError."""
+    pp = WriteChapterPlaylist()
+    files_to_delete, _ = pp.run({**_BASE_INFO})
+    assert files_to_delete == []
+
+
+# ---------------------------------------------------------------------------
+# DeleteUnsplitAudio — chapters=None guard
+# ---------------------------------------------------------------------------
+
+
+def test_delete_unsplit_audio_chapters_none():
+    """chapters=None does not raise TypeError; no files scheduled for deletion."""
+    pp = DeleteUnsplitAudio()
+    files_to_delete, _ = pp.run({**_BASE_INFO, "chapters": None})
+    assert files_to_delete == []
+
+
+def test_delete_unsplit_audio_chapters_absent():
+    """Missing chapters key does not raise TypeError."""
+    pp = DeleteUnsplitAudio()
+    files_to_delete, _ = pp.run({**_BASE_INFO})
+    assert files_to_delete == []

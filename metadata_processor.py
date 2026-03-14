@@ -42,7 +42,7 @@ class SetFileMetadata(PostProcessor):
         """
         super().__init__(downloader, **kwargs)
         self._channels: dict[str, Channel] = {}
-        for channel in (channels or []):
+        for channel in channels or []:
             # Key by handle so we can look up via yt-dlp's uploader_id field.
             self._channels[channel.handle] = channel
 
@@ -112,7 +112,7 @@ class SetFileMetadata(PostProcessor):
         md = handler.song_metadata(info["filepath"], info["title"])
         self._set_song_metadata(info["filepath"], md)
 
-        for chapter in info.get("chapters", []):
+        for chapter in info.get("chapters") or []:
             chapter_md = handler.song_metadata(
                 chapter["filepath"], info["title"], is_chapter=True
             )

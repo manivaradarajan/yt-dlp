@@ -151,8 +151,11 @@ def test_channel_urls_uses_playlist_urls_when_set():
 def _make_cfg(**kwargs) -> DownloadConfig:
     """Return a minimal DownloadConfig with defaults for fields not under test."""
     defaults = dict(
-        name="test", description="", genre="Carnatic",
-        title_patterns=[], output="audio",
+        name="test",
+        description="",
+        genre="Carnatic",
+        title_patterns=[],
+        output="audio",
     )
     return DownloadConfig(**{**defaults, **kwargs})
 

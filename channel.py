@@ -153,5 +153,3 @@ class Channel:
             year=year,
             genre=self.genre,
         )
-
-

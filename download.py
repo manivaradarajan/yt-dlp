@@ -33,10 +33,10 @@ from metadata_processor import SetFileMetadata
 _BROADCAST_LIVE_STATUSES = ("is_live", "was_live", "post_live")
 
 # Persists last-download dates per config name across runs.
-_STATE_FILE = pathlib.Path.home() / ".yt-dlp-carnatic.json"
+_STATE_FILE = pathlib.Path.home() / ".yt-dlp-state.json"
 
 # Records downloaded video IDs; prevents re-downloads and enables early stopping.
-_ARCHIVE_FILE = pathlib.Path.home() / ".yt-dlp-carnatic-archive.txt"
+_ARCHIVE_FILE = pathlib.Path.home() / ".yt-dlp-archive.txt"
 
 
 def _load_state() -> dict:
@@ -200,6 +200,184 @@ class WriteDescriptionAsTxt(PostProcessor):
         base, _ = os.path.splitext(filepath)
         with open(base + ".txt", "w", encoding="utf-8") as f:
             f.write(description)
+        return [], info
+
+
+class WriteChapterPlaylist(PostProcessor):
+    """Writes an M3U8 playlist for chapter-split audio files.
+
+    Creates ``<chapter-dir>/<dir-name>.m3u8`` with one ``#EXTINF`` entry per
+    chapter.  Only runs when the info dict contains chapters that have been
+    assigned filepaths by ``FFmpegSplitChapters``.
+
+    When a split occurs, the unsplit original file is added to the
+    ``files_to_delete`` return value so yt-dlp removes it automatically.
+    Videos without chapters are unaffected.
+    """
+
+    def run(self, info):
+        """Write the M3U8 playlist file and schedule the original for deletion.
+
+        Args:
+            info: yt-dlp info dictionary for the current file.
+
+        Returns:
+            A tuple of (files_to_delete, info). ``files_to_delete`` contains
+            the original unsplit filepath when chapters were split, otherwise
+            it is empty.
+        """
+        # Capture before any chapter logic so we can return it for deletion.
+        original_filepath = info.get("filepath", "")
+
+        chapters = [c for c in (info.get("chapters") or []) if c.get("filepath")]
+        if not chapters:
+            return [], info
+
+        chapter_dir = os.path.dirname(chapters[0]["filepath"])
+        playlist_path = self._playlist_path(chapter_dir)
+        lines = self._build_m3u8_lines(chapters)
+        with open(playlist_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+        # Delete the unsplit original — chapter files are the canonical output.
+        files_to_delete = [original_filepath] if original_filepath else []
+        return files_to_delete, info
+
+    def _playlist_path(self, chapter_dir: str) -> str:
+        """Return the playlist filepath inside the chapter directory.
+
+        Uses the directory name (already sanitized by yt-dlp) as the filename.
+
+        Args:
+            chapter_dir: Directory containing the chapter MP3 files.
+
+        Returns:
+            Absolute path to the ``.m3u8`` file.
+        """
+        name = os.path.basename(chapter_dir)
+        return os.path.join(chapter_dir, f"{name}.m3u8")
+
+    def _build_m3u8_lines(self, chapters: list) -> list[str]:
+        """Build the M3U8 file lines for the given chapter list.
+
+        Args:
+            chapters: List of chapter dicts with ``filepath``, ``start_time``,
+                and ``end_time`` keys.
+
+        Returns:
+            List of strings to join with newlines.
+        """
+        lines = ["#EXTM3U"]
+        for chapter in chapters:
+            filepath = chapter["filepath"]
+            duration = int(chapter.get("end_time", 0) - chapter.get("start_time", 0))
+            title = os.path.splitext(os.path.basename(filepath))[0]
+            lines.append(f"#EXTINF:{duration},{title}")
+            lines.append(os.path.basename(filepath))
+        return lines
+
+
+class DeleteUnsplitAudio(PostProcessor):
+    """Removes the original unsplit MP3 after chapter splitting succeeds.
+
+    When ``FFmpegSplitChapters`` runs it produces per-chapter files inside a
+    subdirectory but leaves the original full-length file alongside them.
+    This postprocessor instructs yt-dlp to delete that redundant file by
+    returning it in the files-to-delete list.
+
+    No-op when the video has no chapters or splitting was not performed.
+    """
+
+    def run(self, info):
+        """Delete the unsplit file if chapter filepaths were produced.
+
+        Args:
+            info: yt-dlp info dictionary for the current file.
+
+        Returns:
+            A tuple of ([filepath_to_delete], info) when chapters were split,
+            or ([], info) when splitting did not occur.
+        """
+        chapters = [c for c in (info.get("chapters") or []) if c.get("filepath")]
+        if not chapters:
+            return [], info
+        return [info["filepath"]], info
+
+
+class DeletePlaylistThumbnail(PostProcessor):
+    """Deletes the channel-avatar JPG written for the playlist container entry.
+
+    ``writethumbnail=True`` causes yt-dlp to download a thumbnail for the
+    playlist container itself (the YouTube channel avatar).  Since there is no
+    audio file to embed it into, ``EmbedThumbnailPP`` never runs on it and the
+    file is never cleaned up.  This postprocessor removes it at the playlist
+    phase, after yt-dlp has finished writing it to disk.
+
+    The written path is stored in ``thumbnails[n]["filepath"]`` by the time the
+    playlist phase fires.
+    """
+
+    def run(self, info):
+        """Delete any thumbnail files written for this playlist entry.
+
+        Args:
+            info: yt-dlp info dictionary for the playlist container.
+
+        Returns:
+            A tuple of ([], info) as required by the PostProcessor interface.
+        """
+        for thumb in info.get("thumbnails") or []:
+            filepath = thumb.get("filepath")
+            if filepath and os.path.isfile(filepath):
+                os.remove(filepath)
+        return [], info
+
+
+class InjectArtistMetadata(PostProcessor):
+    """Pre-process postprocessor that injects an ``artist`` field into the info dict.
+
+    Runs *before* yt-dlp evaluates outtmpl, so the ``%(artist)s`` placeholder
+    resolves to a meaningful directory name.  Falls back to the YouTube uploader
+    name when no channel handler is registered or the title pattern does not match.
+    """
+
+    def __init__(self, channel_map: dict):
+        """Initialise with a handle → Channel lookup dict.
+
+        Args:
+            channel_map: Maps YouTube handle strings (e.g. ``@CarnaticConnect``)
+                to their :class:`Channel` instances.
+        """
+        super().__init__(None)
+        self._channel_map = channel_map
+
+    def run(self, info):
+        """Inject ``info["artist"]`` before outtmpl evaluation.
+
+        Looks up the channel handler by ``uploader_id``, calls
+        ``_extract_artist`` on the video title, and falls back to the YouTube
+        uploader name when no match is found so the field is never empty.
+
+        Args:
+            info: yt-dlp info dictionary for the current video.
+
+        Returns:
+            A tuple of ([], info) as required by the PostProcessor interface.
+        """
+        title = info.get("title", "")
+        uploader_id = info.get("uploader_id", "")
+        # yt-dlp sometimes omits the leading @ — normalise before lookup.
+        handle = uploader_id if uploader_id.startswith("@") else f"@{uploader_id}"
+        channel = self._channel_map.get(handle)
+
+        if channel:
+            artist = channel._extract_artist(title)
+            if artist:
+                info["artist"] = artist
+                return [], info
+
+        # Fall back to uploader name so %(artist)s is always non-empty.
+        info["artist"] = info.get("uploader") or handle or "Unknown"
         return [], info
 
 
@@ -511,9 +689,33 @@ def build_options(output_dir: str, split_chapters: bool, prepend_date: bool) -> 
     options["outtmpl"] = {
         "default": f"{output_dir}/%(channel)s/{prefix}%(title)s.%(ext)s",
         "chapter": f"{output_dir}/%(channel)s/{prefix}%(title)s/%(section_number)s %(section_title)s.%(ext)s",
-        "thumbnail": f"{output_dir}/%(channel)s/{prefix}%(title)s/{prefix}%(title)s.%(ext)s",
+        "thumbnail": f"{output_dir}/%(channel)s/{prefix}%(title)s.%(ext)s",
     }
     return options
+
+
+def _channel_mode_outtmpl(output_dir: str, config_name: str, prefix: str) -> dict:
+    """Build the outtmpl dict for channel-mode downloads.
+
+    Inserts ``%(artist)s`` between the config name and the video title so files
+    group naturally as ``<output>/<config-name>/<artist>/<title>/``.
+
+    Args:
+        output_dir: Root output directory.
+        config_name: Config name(s), e.g. ``"carnatic"`` or
+            ``"carnatic,hindustani"`` when multiple configs are combined.
+        prefix: Title prefix template (empty string or
+            ``"%(release_date|upload_date)s-"`` when ``--prepend-date`` is set).
+
+    Returns:
+        Dict with ``"default"``, ``"chapter"``, and ``"thumbnail"`` outtmpl strings.
+    """
+    base = f"{output_dir}/{config_name}/%(artist,uploader|Unknown)s"
+    return {
+        "default": f"{base}/{prefix}%(title)s.%(ext)s",
+        "chapter": f"{base}/{prefix}%(title)s/%(section_number)s %(section_title)s.%(ext)s",
+        "thumbnail": f"{base}/{prefix}%(title)s.%(ext)s",
+    }
 
 
 def probe_video(url: str) -> dict:
@@ -768,11 +970,28 @@ def download_videos():
         capturer, channels, urls = _setup_single_video(args, options)
     else:
         channels, urls, config_names = _setup_channel_mode(args, options)
+        if config_names:
+            # Switch to <output>/<config-name>/<artist>/<title>/ layout.
+            # outtmpl must be updated before YoutubeDL is constructed.
+            options["outtmpl"] = _channel_mode_outtmpl(
+                args.output_directory,
+                ",".join(config_names),
+                title_prefix(args.prepend_date),
+            )
         print("Fetching channel playlist...")
 
     ydl = yt_dlp.YoutubeDL(options)
     ydl.add_post_processor(SetFileMetadata(channels=channels))
     ydl.add_post_processor(WriteDescriptionAsTxt())
+    ydl.add_post_processor(WriteChapterPlaylist())
+    ydl.add_post_processor(DeleteUnsplitAudio())
+    if config_names:
+        # Inject %(artist)s before outtmpl is evaluated (pre_process phase).
+        channel_map = {ch.handle: ch for ch in channels}
+        ydl.add_post_processor(InjectArtistMetadata(channel_map), when="pre_process")
+        # Remove the channel-avatar thumbnail that writethumbnail=True writes for
+        # the playlist container entry (no audio file → EmbedThumbnailPP never runs).
+        ydl.add_post_processor(DeletePlaylistThumbnail(), when="playlist")
     if capturer:
         # Register last so it sees the final filepath after all other postprocessors.
         ydl.add_post_processor(capturer)

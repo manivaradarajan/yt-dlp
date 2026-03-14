@@ -23,7 +23,10 @@ black *.py
 mypy *.py
 ```
 
-There is no test suite.
+**Run tests:**
+```bash
+pytest tests/
+```
 
 ## Architecture
 

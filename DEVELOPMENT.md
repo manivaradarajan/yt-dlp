@@ -136,10 +136,21 @@ uv run pytest
 Tests cover pure helper functions and dataclass logic — no network calls or file I/O:
 
 - `tests/test_channel.py` — `Channel.song_metadata()` and `Channel.url`
-- `tests/test_download.py` — `parse_time`, `make_title_filter`, `video_format`, `configure_video_mode`, `load_configs`, `resolve_configs`
-- `tests/test_metadata_processor.py` — `_normalize_handle`
+- `tests/test_download.py` — `parse_time`, `make_title_filter`, `video_format`, `configure_video_mode`, `load_configs`, `resolve_configs`, `WriteChapterPlaylist`, `DeleteUnsplitAudio`
+- `tests/test_metadata_processor.py` — `_normalize_handle`, `SetFileMetadata` chapters-None guard
 
 yt-dlp download behaviour, ffmpeg postprocessing, and mutagen tag writing are not covered by the test suite.
+
+## One-off collection scripts
+
+Scripts in the repo root that are **not part of the downloader** — they were
+written to fix up a specific downloaded collection and are kept as reference:
+
+| File | Purpose |
+|------|---------|
+| `fix_stotra_tags.py` | Renames Desika Stotra MP3s and rewrites their ID3 title/artist tags using the canonical names in `stotras.csv` |
+| `set_stotra_order.py` | Assigns sequential TRCK tags and writes `Desika Stotramala.m3u8` based on the traditional LIFCO parayana order |
+| `stotras.csv` | Mapping of original (YouTube) titles → canonical Sanskrit titles for the Desika Stotra collection |
 
 ## Formatting and type checking
 
