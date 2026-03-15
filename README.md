@@ -51,10 +51,12 @@ python download.py --channels carnatic [-o OUTPUT_DIRECTORY]
 python download.py --channels carnatic,hindustani -o /tmp/music
 ```
 
-Output is organised as `OUTPUT_DIRECTORY/<config-name>/<artist>/<title>/`.
-Each video produces an MP3, embedded thumbnail, and a `.txt` sidecar with the
-YouTube description. If the video has chapters, each chapter is split into a
-separate MP3 inside the album directory, alongside an M3U8 playlist.
+Output is organised as `OUTPUT_DIRECTORY/<config-name>/<artist>/<title> [<id>]/`.
+The YouTube video ID is included in the name to prevent collisions when two
+uploads share the same title. Each video produces an MP3, embedded thumbnail,
+and a `.txt` sidecar with the YouTube description. If the video has chapters,
+each chapter is split into a separate MP3 inside the album directory, alongside
+an M3U8 playlist.
 
 ### Incremental downloads
 

@@ -625,8 +625,12 @@ def build_options(output_dir: str, split_chapters: bool, prepend_date: bool) -> 
 def _channel_mode_outtmpl(output_dir: str, config_name: str, prefix: str) -> dict:
     """Build the outtmpl dict for channel-mode downloads.
 
-    Inserts ``%(artist)s`` between the config name and the video title so files
-    group naturally as ``<output>/<config-name>/<artist>/<title>/``.
+    Output layout:
+      Non-chapter: ``<output>/<config>/<artist>/<title> [<id>].mp3``
+      Chapter:     ``<output>/<config>/<artist>/<title> [<id>]/<N> <section>.mp3``
+
+    The video ID is appended to the title to prevent directory/file collisions
+    when two different uploads share the same title.
 
     Args:
         output_dir: Root output directory.
@@ -639,10 +643,11 @@ def _channel_mode_outtmpl(output_dir: str, config_name: str, prefix: str) -> dic
         Dict with ``"default"``, ``"chapter"``, and ``"thumbnail"`` outtmpl strings.
     """
     base = f"{output_dir}/{config_name}/%(artist,uploader|Unknown)s"
+    title_id = "%(title)s [%(id)s]"
     return {
-        "default": f"{base}/{prefix}%(title)s.%(ext)s",
-        "chapter": f"{base}/{prefix}%(title)s/%(section_number)s %(section_title)s.%(ext)s",
-        "thumbnail": f"{base}/{prefix}%(title)s.%(ext)s",
+        "default": f"{base}/{prefix}{title_id}.%(ext)s",
+        "chapter": f"{base}/{prefix}{title_id}/%(section_number)s %(section_title)s.%(ext)s",
+        "thumbnail": f"{base}/{prefix}{title_id}.%(ext)s",
     }
 
 

@@ -3,14 +3,15 @@
 from channel import Channel
 from config import DownloadConfig
 
-# CarnaticConnect uses " | " as separator in video titles:
-#   "Artist | Venue | Date"
-# (yt-dlp sanitises | → ｜ in filenames, but the title string has plain |.)
-# The default r"^(.*?) -" only handles dash-separated titles, so we add
-# the pipe pattern as well.
+# CarnaticConnect titles appear in three formats:
+#   "Artist | Venue | Date"  → pipe pattern
+#   "Artist - Concert"       → dash pattern
+#   "Artist Name"            → no separator; title IS the artist name
+#                              (matched by letters-only fallback)
+# (yt-dlp sanitises | → ｜ in filenames, but the title string uses plain |.)
 CARNATIC_CONNECT = Channel(
     handle="@CarnaticConnect",
-    artist_match=[r"^(.*?) \|", r"^(.*?) -"],
+    artist_match=[r"^(.*?) \|", r"^(.*?) -", r"^([A-Za-z .]+)$"],
 )
 
 # Vaak titles use "Artist | Concert title" rather than "Artist - Concert title".
