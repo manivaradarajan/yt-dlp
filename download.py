@@ -104,24 +104,207 @@ class _QuietLogger:
         print(msg, file=sys.stderr)
 
 
-def _make_progress_hook():
-    """Return a progress hook that prints each file's basename once when it starts.
+_CYAN = "\033[36m"
+_GREEN = "\033[32m"
+_GREY = "\033[90m"
+_RESET = "\033[0m"
+_BAR_WIDTH = 20
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
-    Provides visible download progress in quiet mode, where yt-dlp's built-in
-    progress bar is suppressed.
+
+def _strip_ansi(s: str) -> str:
+    """Return *s* with all ANSI escape codes removed."""
+    return _ANSI_RE.sub("", s)
+
+# Human-readable labels for postprocessors that take noticeable time.
+# Keys are the values returned by each class's pp_key() method.
+_PP_LABELS: dict[str, str] = {
+    "ExtractAudio": "Extracting audio",
+    "SplitChapters": "Splitting chapters",
+    "EmbedThumbnail": "Embedding thumbnail",
+}
+
+
+def _format_speed(bps: float) -> str:
+    """Format a byte-per-second rate as a human-readable string.
+
+    Args:
+        bps: Speed in bytes per second.
+
+    Returns:
+        String like ``"2.3 MB/s"`` or ``"512 KB/s"``.
+    """
+    if bps >= 1_000_000:
+        return f"{bps / 1_000_000:.1f} MB/s"
+    return f"{bps / 1_000:.0f} KB/s"
+
+
+def _format_eta(seconds: int) -> str:
+    """Format an ETA in seconds as a human-readable string.
+
+    Args:
+        seconds: Estimated seconds remaining.
+
+    Returns:
+        String like ``"1:23"`` (minutes:seconds) or ``"45s"``.
+    """
+    if seconds >= 60:
+        return f"{seconds // 60}:{seconds % 60:02d}"
+    return f"{seconds}s"
+
+
+def _format_size(n: int) -> str:
+    """Format a byte count as a compact human-readable string.
+
+    Args:
+        n: Number of bytes.
+
+    Returns:
+        String like ``"34.2 MB"`` or ``"512 KB"``.
+    """
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f} MB"
+    return f"{n / 1_000:.0f} KB"
+
+
+def _make_bar(pct: int, width: int = _BAR_WIDTH) -> str:
+    """Build a coloured block-character progress bar.
+
+    Args:
+        pct: Integer percentage 0–100.
+        width: Total number of block characters.
+
+    Returns:
+        ANSI-coloured string ``"████░░░░░░░░"`` of *width* characters.
+    """
+    filled = round(width * pct / 100)
+    bar = _CYAN + "█" * filled + _GREY + "░" * (width - filled) + _RESET
+    return bar
+
+
+def _build_progress_suffix(d: dict) -> str:
+    """Build the right-hand portion of a progress line (bar, %, speed, ETA).
+
+    Args:
+        d: yt-dlp progress dict for the current tick.
+
+    Returns:
+        ANSI-coloured string with bar + stats, without the filename prefix.
+    """
+    downloaded = d.get("downloaded_bytes") or 0
+    total = d.get("total_bytes") or 0  # estimates are too unreliable
+    speed = d.get("speed")
+    eta = d.get("eta")
+
+    parts: list[str] = []
+    if total:
+        pct = min(100, downloaded * 100 // total)
+        parts.append(_make_bar(pct))
+        parts.append(f"{_CYAN}{pct:3d}%{_RESET}")
+        parts.append(_format_size(downloaded) + "/" + _format_size(total))
+    else:
+        parts.append(_format_size(downloaded))
+
+    if speed:
+        parts.append(f"{_GREEN}{_format_speed(speed)}{_RESET}")
+    if eta is not None:
+        parts.append(f"ETA {_format_eta(eta)}")
+
+    return "  ".join(parts)
+
+
+def _build_progress_line(name: str, d: dict) -> str:
+    """Compose the single-line progress string, truncated to terminal width.
+
+    Truncates the filename with ``…`` so the whole line never exceeds the
+    terminal width — preventing line wrap that breaks ``\\r`` overwriting.
+
+    Args:
+        name: Basename of the file being downloaded.
+        d: yt-dlp progress dict for the current tick.
+
+    Returns:
+        Plain-plus-ANSI string ready for ``print(..., end="")``.
+    """
+    prefix = "[download] "
+    suffix = _build_progress_suffix(d)
+    sep = "  "
+
+    term_cols = shutil.get_terminal_size(fallback=(80, 24)).columns
+    # Visible chars used by prefix + sep + suffix; remainder is for the name.
+    max_name = term_cols - len(prefix) - len(sep) - len(_strip_ansi(suffix))
+    max_name = max(10, max_name)
+    if len(name) > max_name:
+        name = name[: max_name - 1] + "…"
+
+    return f"{prefix}{name}{sep}{suffix}"
+
+
+def _make_progress_hook():
+    """Return a live single-line progress hook for quiet-mode downloads.
+
+    Uses ``\\r`` to overwrite the current terminal line on each tick.
+    When a new file starts the previous line is finalised with ``\\n``.
 
     Returns:
         A callable suitable for ``options["progress_hooks"]``.
     """
-    seen: set[str] = set()
+    active_fn: list[str] = [""]  # list used as mutable cell for nonlocal
+    last_len: list[int] = [0]
+
+    def _print_line(line: str) -> None:
+        """Overwrite the current terminal line with *line*."""
+        vis = len(_strip_ansi(line))
+        padding = max(0, last_len[0] - vis)
+        print(f"\r{line}{' ' * padding}", end="", flush=True)
+        last_len[0] = vis
+
+    def _finish_line() -> None:
+        """Move to the next line after a file completes or changes."""
+        if last_len[0]:
+            print()
+            last_len[0] = 0
 
     def _hook(d: dict) -> None:
+        fn = d.get("filename", "")
+        if not fn:
+            return
+
+        if d["status"] == "finished":
+            _finish_line()
+            active_fn[0] = ""
+            return
+
         if d["status"] != "downloading":
             return
-        fn = d.get("filename", "")
-        if fn and fn not in seen:
-            seen.add(fn)
-            print(f"[download] {os.path.basename(fn)}")
+
+        name = os.path.basename(fn)
+
+        if fn != active_fn[0]:
+            _finish_line()
+            active_fn[0] = fn
+
+        _print_line(_build_progress_line(name, d))
+
+    return _hook
+
+
+def _make_postprocessor_hook():
+    """Return a postprocessor hook that logs the start of slow ffmpeg stages.
+
+    Fires for each postprocessor that has a label in ``_PP_LABELS``.  Runs
+    only in quiet mode (not wired up when ``--verbose`` is active).
+
+    Returns:
+        A callable suitable for ``ydl.add_postprocessor_hook()``.
+    """
+
+    def _hook(d: dict) -> None:
+        if d.get("status") != "started":
+            return
+        label = _PP_LABELS.get(d.get("postprocessor", ""))
+        if label:
+            print(f"[postprocess] {label}...")
 
     return _hook
 
@@ -601,27 +784,8 @@ def download_videos():
             )
         print("Fetching channel playlist...")
 
-    ydl = yt_dlp.YoutubeDL(options)
-    ydl.add_post_processor(
-        SetFileMetadata(channels=channels, artist_aliases=all_aliases)
-    )
-    ydl.add_post_processor(WriteDescriptionAsTxt())
-    ydl.add_post_processor(WriteChapterPlaylist())
-    ydl.add_post_processor(DeleteUnsplitAudio())
-    if config_names:
-        # Inject %(artist)s before outtmpl is evaluated (pre_process phase).
-        channel_map = {ch.handle: ch for ch in channels}
-        ydl.add_post_processor(
-            InjectArtistMetadata(
-                channel_map, artist_aliases=all_aliases, verbose=args.verbose
-            ),
-            when="pre_process",
-        )
-        # Remove the channel-avatar thumbnail that writethumbnail=True writes for
-        # the playlist container entry (no audio file → EmbedThumbnailPP never runs).
-        ydl.add_post_processor(DeletePlaylistThumbnail(), when="playlist")
+    ydl = _build_ydl(options, channels, all_aliases, config_names, args.verbose)
     if capturer:
-        # Register last so it sees the final filepath after all other postprocessors.
         ydl.add_post_processor(capturer)
     ydl.download(urls)
 
@@ -630,6 +794,47 @@ def download_videos():
 
     if capturer:
         run_post_clip(capturer, args.start, args.end)
+
+
+def _build_ydl(
+    options: dict,
+    channels: list,
+    all_aliases: dict,
+    config_names: list,
+    verbose: bool,
+) -> yt_dlp.YoutubeDL:
+    """Build and configure a YoutubeDL instance with all postprocessors.
+
+    Args:
+        options: yt-dlp options dict (will be used as-is; deep-copy before calling
+            if the caller needs the original intact).
+        channels: Channel objects for ID3 metadata lookup.
+        all_aliases: Merged artist alias map.
+        config_names: Active config names (empty list in single-video mode).
+        verbose: Whether verbose output is requested.
+
+    Returns:
+        Configured YoutubeDL instance ready to call ``download()``.
+    """
+    ydl = yt_dlp.YoutubeDL(options)
+    if not verbose:
+        ydl.add_postprocessor_hook(_make_postprocessor_hook())
+    ydl.add_post_processor(
+        SetFileMetadata(channels=channels, artist_aliases=all_aliases)
+    )
+    ydl.add_post_processor(WriteDescriptionAsTxt())
+    ydl.add_post_processor(WriteChapterPlaylist())
+    ydl.add_post_processor(DeleteUnsplitAudio())
+    if config_names:
+        channel_map = {ch.handle: ch for ch in channels}
+        ydl.add_post_processor(
+            InjectArtistMetadata(channel_map, artist_aliases=all_aliases, verbose=verbose),
+            when="pre_process",
+        )
+        # Remove the channel-avatar thumbnail that writethumbnail=True writes for
+        # the playlist container entry (no audio file → EmbedThumbnailPP never runs).
+        ydl.add_post_processor(DeletePlaylistThumbnail(), when="playlist")
+    return ydl
 
 
 if __name__ == "__main__":

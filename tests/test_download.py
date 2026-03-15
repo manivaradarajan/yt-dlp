@@ -15,6 +15,12 @@ from channel import Channel
 from clipping import parse_time
 from download import (
     OPTIONS,
+    _build_progress_line,
+    _format_eta,
+    _format_size,
+    _format_speed,
+    _make_bar,
+    _strip_ansi,
     configure_video_mode,
     load_configs,
     make_title_filter,
@@ -27,6 +33,101 @@ from postprocessors import (
     WriteChapterPlaylist,
     WriteDescriptionAsTxt,
 )
+
+# ---------------------------------------------------------------------------
+# _format_speed / _format_eta / _format_size / _make_bar / _build_progress_line
+# ---------------------------------------------------------------------------
+
+
+def test_format_speed_mb():
+    assert _format_speed(2_300_000) == "2.3 MB/s"
+
+
+def test_format_speed_kb():
+    assert _format_speed(512_000) == "512 KB/s"
+
+
+def test_format_eta_seconds():
+    assert _format_eta(45) == "45s"
+
+
+def test_format_eta_minutes():
+    assert _format_eta(83) == "1:23"
+
+
+def test_format_size_mb():
+    assert _format_size(34_200_000) == "34.2 MB"
+
+
+def test_format_size_kb():
+    assert _format_size(512_000) == "512 KB"
+
+
+def test_make_bar_empty():
+    """0% bar contains no filled blocks."""
+    bar = _make_bar(0, width=10)
+    assert "█" not in bar.replace("\033[36m", "").replace("\033[0m", "")
+
+
+def test_make_bar_full():
+    """100% bar contains only filled blocks."""
+    plain = _strip_ansi(_make_bar(100, width=10))
+    assert plain == "█" * 10
+
+
+def test_make_bar_half():
+    """50% bar is exactly half filled."""
+    plain = _strip_ansi(_make_bar(50, width=10))
+    assert plain.count("█") == 5
+    assert plain.count("░") == 5
+
+
+def test_build_progress_line_with_total():
+    """Line includes percentage and sizes when total_bytes is known."""
+    line = _build_progress_line(
+        "track.mp3",
+        {"downloaded_bytes": 5_000_000, "total_bytes": 10_000_000, "speed": None, "eta": None},
+    )
+    plain = _strip_ansi(line)
+    assert "track.mp3" in plain
+    assert "50%" in plain
+    assert "MB" in plain
+
+
+def test_build_progress_line_without_total():
+    """Line omits percentage bar when total_bytes is absent."""
+    line = _build_progress_line(
+        "track.mp3",
+        {"downloaded_bytes": 5_000_000, "total_bytes": None, "speed": None, "eta": None},
+    )
+    plain = _strip_ansi(line)
+    assert "%" not in plain
+    assert "track.mp3" in plain
+
+
+def test_build_progress_line_with_speed_and_eta():
+    """Speed and ETA appear in the line when provided."""
+    line = _build_progress_line(
+        "track.mp3",
+        {"downloaded_bytes": 1_000_000, "total_bytes": 10_000_000, "speed": 2_300_000, "eta": 45},
+    )
+    plain = _strip_ansi(line)
+    assert "2.3 MB/s" in plain
+    assert "ETA" in plain
+    assert "45s" in plain
+
+
+def test_build_progress_line_truncates_long_name():
+    """Filename is truncated so the visible line fits within terminal width."""
+    long_name = "A" * 200 + ".mp3"
+    line = _build_progress_line(
+        long_name,
+        {"downloaded_bytes": 5_000_000, "total_bytes": 10_000_000, "speed": None, "eta": None},
+    )
+    # Visible length must not exceed a realistic terminal width.
+    assert len(_strip_ansi(line)) <= 200
+    assert "…" in line
+
 
 # ---------------------------------------------------------------------------
 # parse_time
