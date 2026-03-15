@@ -449,31 +449,48 @@ def list_channels_and_exit() -> None:
     raise SystemExit(0)
 
 
-def make_title_filter(patterns: list[str], verbose: bool = False):
+def make_title_filter(
+    patterns: list[str],
+    exclude_patterns: list[str] | None = None,
+    verbose: bool = False,
+):
     """Return a yt-dlp ``match_filter`` callable for the given title patterns.
 
-    A video passes the filter if its title matches *any* of the patterns.
+    A video passes the filter if:
+    - Its title matches *at least one* of ``patterns`` (when non-empty), AND
+    - Its title does NOT match any of ``exclude_patterns`` (when non-empty).
 
     Args:
-        patterns: List of regex patterns to match against video titles.
+        patterns: Allowlist of regex patterns. Empty list skips allowlist check.
+        exclude_patterns: Blocklist of regex patterns. Empty list or None skips
+            blocklist check.
         verbose: If False, print rejection messages directly (they are suppressed
             by yt-dlp when ``quiet=True``). If True, yt-dlp shows them itself.
 
     Returns:
         A ``match_filter`` callable accepted by yt-dlp options.
     """
+    _excludes = exclude_patterns or []
+
+    def _reject(reason: str) -> str:
+        """Print the rejection reason in quiet mode and return it."""
+        if not verbose:
+            print(f"[download] {reason}")
+        return reason
 
     def _filter(info_dict):
         title = info_dict.get("title", "")
-        for pattern in patterns:
+
+        # Allowlist check: title must match at least one include pattern.
+        if patterns and not any(re.search(p, title) for p in patterns):
+            return _reject(f"'{title}' doesn't match any artist in the list")
+
+        # Blocklist check: title must not match any exclude pattern.
+        for pattern in _excludes:
             if re.search(pattern, title):
-                return None
-        reason = f"'{title}' doesn't match any artist in the list"
-        if not verbose:
-            # quiet=True suppresses yt-dlp's own copy of this message, so we
-            # print it ourselves to keep it visible as a progress indicator.
-            print(f"[download] {reason}")
-        return reason
+                return _reject(f"'{title}' matches exclusion pattern '{pattern}'")
+
+        return None
 
     return _filter
 
@@ -734,13 +751,16 @@ def _setup_channel_mode(
 
     all_channels = [ch for cfg in configs for ch in cfg.channels]
     all_patterns = [p for cfg in configs for p in cfg.title_patterns]
+    all_excludes = [p for cfg in configs for p in cfg.exclude_title_patterns]
 
     # Use video mode if any selected config requests it.
     if any(cfg.output == "video" for cfg in configs):
         configure_video_mode(options)
 
-    if all_patterns:
-        options["match_filter"] = make_title_filter(all_patterns, verbose=args.verbose)
+    if all_patterns or all_excludes:
+        options["match_filter"] = make_title_filter(
+            all_patterns, exclude_patterns=all_excludes, verbose=args.verbose
+        )
 
     # Record downloaded video IDs so re-runs skip already-downloaded content.
     options["download_archive"] = str(_ARCHIVE_FILE)

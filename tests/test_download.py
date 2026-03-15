@@ -171,6 +171,31 @@ def test_title_filter_case_sensitive():
     assert f({"title": "ariyakudi"}) is not None
 
 
+def test_title_filter_excluded_title_is_rejected():
+    """Title matching include but also matching exclude is rejected."""
+    f = make_title_filter([r"Ariyakudi"], exclude_patterns=[r"Playlist"])
+    assert f({"title": "Ariyakudi Playlist"}) is not None
+
+
+def test_title_filter_non_excluded_title_is_allowed():
+    """Title matching include and not matching exclude is allowed."""
+    f = make_title_filter([r"Ariyakudi"], exclude_patterns=[r"Playlist"])
+    assert f({"title": "Ariyakudi Concert 1950"}) is None
+
+
+def test_title_filter_exclude_only_no_include_patterns():
+    """Exclude patterns apply even when no include patterns are given."""
+    f = make_title_filter([], exclude_patterns=[r"Shorts"])
+    assert f({"title": "Some Shorts Video"}) is not None
+    assert f({"title": "Full Concert"}) is None
+
+
+def test_title_filter_empty_exclude_patterns_allow_all():
+    """Empty exclude list does not block any titles."""
+    f = make_title_filter([r"Ariyakudi"], exclude_patterns=[])
+    assert f({"title": "Ariyakudi Concert"}) is None
+
+
 # ---------------------------------------------------------------------------
 # video_format
 # ---------------------------------------------------------------------------

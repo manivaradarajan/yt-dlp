@@ -51,7 +51,7 @@ class DownloadConfig:
     """Default ID3 genre tag for channels that don't declare their own."""
 
     title_patterns: list[str]
-    """Regex filters for video titles.  Empty list means no filtering."""
+    """Regex allowlist for video titles.  Empty list means no filtering."""
 
     output: Literal["audio", "video"]
     """Whether to extract MP3 audio or keep the full video file."""
@@ -63,6 +63,14 @@ class DownloadConfig:
     ``genre`` from the config level.  ``Channel`` objects with ``genre=None``
     also inherit the config genre.  Use this when you want custom ID3 tag
     extraction (artist name, track number, etc.).
+    """
+
+    exclude_title_patterns: list[str] = field(default_factory=list)
+    """Regex blocklist for video titles.
+
+    A video is skipped if its title matches any of these patterns, regardless
+    of whether it also matches ``title_patterns``.  Empty list means no
+    exclusions.
     """
 
     artist_aliases: dict[str, str] = field(default_factory=dict)
