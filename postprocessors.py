@@ -76,25 +76,19 @@ class WriteChapterPlaylist(PostProcessor):
     chapter.  Only runs when the info dict contains chapters that have been
     assigned filepaths by ``FFmpegSplitChapters``.
 
-    When a split occurs, the unsplit original file is added to the
-    ``files_to_delete`` return value so yt-dlp removes it automatically.
     Videos without chapters are unaffected.
+    Deletion of the unsplit original is handled by ``DeleteUnsplitAudio``.
     """
 
     def run(self, info):
-        """Write the M3U8 playlist file and schedule the original for deletion.
+        """Write the M3U8 playlist file when chapters were split.
 
         Args:
             info: yt-dlp info dictionary for the current file.
 
         Returns:
-            A tuple of (files_to_delete, info). ``files_to_delete`` contains
-            the original unsplit filepath when chapters were split, otherwise
-            it is empty.
+            A tuple of ([], info). File deletion is left to DeleteUnsplitAudio.
         """
-        # Capture before any chapter logic so we can return it for deletion.
-        original_filepath = info.get("filepath", "")
-
         chapters = [c for c in (info.get("chapters") or []) if c.get("filepath")]
         if not chapters:
             return [], info
@@ -105,9 +99,7 @@ class WriteChapterPlaylist(PostProcessor):
         with open(playlist_path, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
 
-        # Delete the unsplit original — chapter files are the canonical output.
-        files_to_delete = [original_filepath] if original_filepath else []
-        return files_to_delete, info
+        return [], info
 
     def _playlist_path(self, chapter_dir: str) -> str:
         """Return the playlist filepath inside the chapter directory.

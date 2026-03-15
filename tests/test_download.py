@@ -299,7 +299,7 @@ def test_txt_path_chapters_without_filepath_treated_as_no_split():
 
 
 # ---------------------------------------------------------------------------
-# WriteChapterPlaylist — chapters=None guard
+# WriteChapterPlaylist — chapters=None guard and deletion contract
 # ---------------------------------------------------------------------------
 
 _BASE_INFO = {"filepath": "/tmp/x.mp3"}
@@ -316,6 +316,25 @@ def test_write_chapter_playlist_chapters_absent():
     """Missing chapters key does not raise TypeError."""
     pp = WriteChapterPlaylist()
     files_to_delete, _ = pp.run({**_BASE_INFO})
+    assert files_to_delete == []
+
+
+def test_write_chapter_playlist_never_deletes_original(tmp_path):
+    """WriteChapterPlaylist never schedules the original for deletion.
+
+    Deletion is solely DeleteUnsplitAudio's responsibility; double-scheduling
+    causes yt-dlp to emit a spurious 'Unable to delete file' warning.
+    """
+    chapter_dir = tmp_path / "Concert"
+    chapter_dir.mkdir()
+    ch1 = chapter_dir / "01 Track.mp3"
+    ch1.write_text("")
+    info = {
+        "filepath": str(tmp_path / "Concert.mp3"),
+        "chapters": [{"filepath": str(ch1), "start_time": 0, "end_time": 60}],
+    }
+    pp = WriteChapterPlaylist()
+    files_to_delete, _ = pp.run(info)
     assert files_to_delete == []
 
 
