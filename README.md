@@ -6,10 +6,12 @@ or clips as audio or video.
 
 ## Setup
 
-Install [uv](https://docs.astral.sh/uv/) if you don't have it:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you
+don't have it. The installation page covers all platforms; on Linux/macOS the
+one-liner is:
 
 ```bash
-brew install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 Create the venv and install all dependencies:
@@ -21,14 +23,18 @@ uv sync
 Activate the venv (needed before running `python` directly):
 
 ```bash
+# Linux / macOS
 source .venv/bin/activate
+
+# Windows
+.venv\Scripts\activate
 ```
 
-Requires `ffmpeg` and `node` on your PATH:
+Requires `ffmpeg` and `node` on your PATH. Install via your system package
+manager or the official downloads:
 
-```bash
-brew install ffmpeg node
-```
+- **ffmpeg**: <https://ffmpeg.org/download.html>
+- **Node.js**: <https://nodejs.org/en/download>
 
 ## Channel downloads
 
@@ -57,7 +63,8 @@ runs, already-downloaded videos are skipped automatically. To force a full
 re-download, delete the archive:
 
 ```bash
-rm ~/.yt-dlp-archive.txt
+rm ~/.yt-dlp-archive.txt        # Linux / macOS
+del %USERPROFILE%\.yt-dlp-archive.txt   # Windows
 ```
 
 ## Writing a config
@@ -105,7 +112,8 @@ CONFIG = DownloadConfig(
 specific playlists instead of the channel's full `/videos` page:
 
 ```python
-from channel import Channel, DownloadConfig
+from channel import Channel
+from config import DownloadConfig
 
 CONFIG = DownloadConfig(
     name="hindustani",
@@ -204,8 +212,9 @@ automatically, downloads the full stream first, then clips with ffmpeg.
 
 ## Verbosity
 
-By default only filter rejections and filenames being downloaded are shown. Pass
-`--verbose` to see yt-dlp's full output (format selection, extraction steps, etc.):
+By default the output shows a live progress bar per file and a `[postprocess]`
+line for each slow FFmpeg stage (audio extraction, chapter splitting, thumbnail
+embedding). Pass `--verbose` to see yt-dlp's full output instead:
 
 ```bash
 python download.py --channels carnatic --verbose
