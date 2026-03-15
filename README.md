@@ -153,6 +153,21 @@ CONFIG = DownloadConfig(
 )
 ```
 
+**Excluding videos by title** — skip videos whose titles match any of the blocklist patterns, even if they also match `title_patterns`:
+
+```python
+CONFIG = DownloadConfig(
+    name="carnatic",
+    ...
+    title_patterns=[r"Semmangudi", r"Musiri"],
+    exclude_title_patterns=[         # optional; empty list = exclude nothing
+        r"Shorts",
+        r"#short",
+    ],
+    output="audio",
+)
+```
+
 **Artist aliases** — map variant spellings to a canonical name used in folder names and ID3 tags:
 
 ```python

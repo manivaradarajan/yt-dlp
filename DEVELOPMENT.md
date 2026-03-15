@@ -80,6 +80,9 @@ CONFIG = DownloadConfig(
     title_patterns=[             # empty list = download everything
         r"Artist Name",
     ],
+    exclude_title_patterns=[     # optional blocklist; matched titles are always skipped
+        r"Shorts",
+    ],
     output="audio",              # "audio" extracts MP3; "video" keeps the video file
 )
 ```
