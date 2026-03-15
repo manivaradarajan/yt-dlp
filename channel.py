@@ -13,6 +13,45 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 
+def normalize_initials(name: str) -> str:
+    """Merge consecutive single-letter alphabetic tokens into one token.
+
+    Runs of single-letter initials separated by spaces are joined without
+    spaces, leaving longer words untouched.
+
+    Examples::
+
+        "K V Narayanaswamy" → "KV Narayanaswamy"
+        "T N Krishnan"      → "TN Krishnan"
+        "K V N"             → "KVN"
+        "KV Narayanaswamy"  → "KV Narayanaswamy"  # already merged, unchanged
+        "M Balamuralikrishna" → "M Balamuralikrishna"  # single initial + word
+
+    Args:
+        name: Artist name string, potentially with spaced initials.
+
+    Returns:
+        Name with consecutive single-letter initials merged.
+    """
+    tokens = name.split()
+    result = []
+    i = 0
+    while i < len(tokens):
+        if len(tokens[i]) == 1 and tokens[i].isalpha():
+            # Collect this run of single-letter tokens into one merged token.
+            run = tokens[i]
+            j = i + 1
+            while j < len(tokens) and len(tokens[j]) == 1 and tokens[j].isalpha():
+                run += tokens[j]
+                j += 1
+            result.append(run)
+            i = j
+        else:
+            result.append(tokens[i])
+            i += 1
+    return " ".join(result)
+
+
 @dataclass(frozen=True)
 class SongMetadata:
     """Metadata for an audio file extracted from a YouTube video."""
@@ -113,7 +152,7 @@ class Channel:
         for pattern in self.artist_match:
             m = re.match(pattern, album_title)
             if m:
-                return m.group(1)
+                return normalize_initials(m.group(1))
         return None
 
     def song_metadata(

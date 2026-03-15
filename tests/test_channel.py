@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
-from channel import Channel
+from channel import Channel, normalize_initials
 from config import DownloadConfig
 
 # Shared channel instance reused across all tests in this file.
@@ -180,3 +180,42 @@ def test_channel_without_genre_inherits_config_genre():
     ch = Channel(handle="@Baz")  # genre defaults to None
     cfg = _make_cfg(channels=[ch])
     assert cfg.channels[0].genre == "Carnatic"
+
+
+# ---------------------------------------------------------------------------
+# normalize_initials — initials merging
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_consecutive_two_initials():
+    """Two consecutive single-letter tokens are merged into one."""
+    assert normalize_initials("K V Narayanaswamy") == "KV Narayanaswamy"
+
+
+def test_normalize_three_consecutive_initials():
+    """Three consecutive single-letter tokens are all merged."""
+    assert normalize_initials("K V N") == "KVN"
+
+
+def test_normalize_single_initial_before_word():
+    """A lone initial followed by a multi-letter word is left unchanged."""
+    assert normalize_initials("M Balamuralikrishna") == "M Balamuralikrishna"
+
+
+def test_normalize_already_merged():
+    """A name with pre-merged initials is unchanged."""
+    assert normalize_initials("KV Narayanaswamy") == "KV Narayanaswamy"
+
+
+def test_normalize_no_initials():
+    """A name with no single-letter tokens is returned unchanged."""
+    assert (
+        normalize_initials("Ariyakudi Ramanuja Iyengar") == "Ariyakudi Ramanuja Iyengar"
+    )
+
+
+def test_normalize_initials_applied_in_extract_artist():
+    """_extract_artist returns a normalized name when the title has spaced initials."""
+    ch = Channel(handle="@Test", genre="Carnatic")
+    md = ch.song_metadata("/path/file.mp3", "K V Narayanaswamy - Concert 1970")
+    assert md.artist == "KV Narayanaswamy"

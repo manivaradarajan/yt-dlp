@@ -65,6 +65,17 @@ class DownloadConfig:
     extraction (artist name, track number, etc.).
     """
 
+    artist_aliases: dict[str, str] = field(default_factory=dict)
+    """Mapping from variant artist names to their canonical form.
+
+    Keys are post-normalization names (what ``normalize_initials`` produces).
+    Values are the canonical spelling to use for folder names and ID3 tags.
+
+    Example::
+
+        artist_aliases={"Narayanaswami": "Narayanaswamy"}
+    """
+
     urls: list[str] = field(default_factory=list)
     """Direct playlist or channel URLs to download, without a Channel handler.
 

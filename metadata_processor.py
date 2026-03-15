@@ -5,6 +5,7 @@ After yt-dlp extracts audio, ``SetFileMetadata`` looks up the registered
 tags via mutagen.
 """
 
+import dataclasses
 import os
 
 from mutagen import id3, mp3
@@ -33,25 +34,47 @@ def _normalize_handle(uploader_id: str) -> str:
 class SetFileMetadata(PostProcessor):
     """yt-dlp PostProcessor that writes ID3 tags to downloaded MP3 files."""
 
-    def __init__(self, downloader=None, channels=None, **kwargs):
-        """Initialise with a list of Channel handlers.
+    def __init__(self, downloader=None, channels=None, artist_aliases=None, **kwargs):
+        """Initialise with a list of Channel handlers and an optional alias map.
 
         Args:
             downloader: yt-dlp downloader instance (passed by yt-dlp internals).
             channels: List of Channel instances to register for metadata lookup.
+            artist_aliases: Maps post-normalization artist names to their
+                canonical form.  Applied after ``song_metadata()`` extraction.
         """
         super().__init__(downloader, **kwargs)
         self._channels: dict[str, Channel] = {}
         for channel in channels or []:
             # Key by handle so we can look up via yt-dlp's uploader_id field.
             self._channels[channel.handle] = channel
+        self._artist_aliases: dict[str, str] = artist_aliases or {}
 
-    def _set_song_metadata(self, filepath: str, song_metadata: SongMetadata) -> None:
+    def _apply_alias(self, md: SongMetadata) -> SongMetadata:
+        """Return ``md`` with the artist replaced by its alias, if one exists.
+
+        Args:
+            md: Source metadata.
+
+        Returns:
+            A new ``SongMetadata`` with the aliased artist, or ``md`` unchanged.
+        """
+        if md.artist and md.artist in self._artist_aliases:
+            return dataclasses.replace(md, artist=self._artist_aliases[md.artist])
+        return md
+
+    def _set_song_metadata(
+        self,
+        filepath: str,
+        song_metadata: SongMetadata,
+        source_channel: str | None = None,
+    ) -> None:
         """Write ID3 tags to an MP3 file.
 
         Args:
             filepath: Path to the MP3 file.
             song_metadata: Metadata to write.
+            source_channel: YouTube channel name stored as TXXX:channel, or None to skip.
         """
         audio_file = mp3.MP3(filepath, ID3=id3.ID3)
         try:
@@ -78,6 +101,11 @@ class SetFileMetadata(PostProcessor):
 
         if song_metadata.genre:
             audio_file.tags["TCON"] = id3.TCON(encoding=3, text=song_metadata.genre)
+
+        if source_channel:
+            audio_file.tags["TXXX:channel"] = id3.TXXX(
+                encoding=3, desc="channel", text=source_channel
+            )
 
         audio_file.save()
 
@@ -109,13 +137,21 @@ class SetFileMetadata(PostProcessor):
                 )
             return [], info
 
-        md = handler.song_metadata(info["filepath"], info["title"])
-        self._set_song_metadata(info["filepath"], md)
+        # Prefer 'channel' (display name) over 'uploader' — both are usually
+        # identical for YouTube but 'channel' is the more canonical field.
+        source_channel = info.get("channel") or info.get("uploader") or None
+
+        md = self._apply_alias(handler.song_metadata(info["filepath"], info["title"]))
+        self._set_song_metadata(info["filepath"], md, source_channel=source_channel)
 
         for chapter in info.get("chapters") or []:
-            chapter_md = handler.song_metadata(
-                chapter["filepath"], info["title"], is_chapter=True
+            chapter_md = self._apply_alias(
+                handler.song_metadata(
+                    chapter["filepath"], info["title"], is_chapter=True
+                )
             )
-            self._set_song_metadata(chapter["filepath"], chapter_md)
+            self._set_song_metadata(
+                chapter["filepath"], chapter_md, source_channel=source_channel
+            )
 
         return [], info
