@@ -45,19 +45,19 @@ python download.py --channels carnatic [-o OUTPUT_DIRECTORY]
 python download.py --channels carnatic,hindustani -o /tmp/music
 ```
 
-Output is organised as `OUTPUT_DIRECTORY/<channel>/<title>/`. Each video
-produces an MP3, embedded thumbnail, and a `.txt` sidecar with the YouTube
-description. If the video has chapters, each chapter is split into a separate
-MP3.
+Output is organised as `OUTPUT_DIRECTORY/<config-name>/<artist>/<title>/`.
+Each video produces an MP3, embedded thumbnail, and a `.txt` sidecar with the
+YouTube description. If the video has chapters, each chapter is split into a
+separate MP3 inside the album directory, alongside an M3U8 playlist.
 
 ### Incremental downloads
 
-Downloaded video IDs are recorded in `~/.yt-dlp-carnatic-archive.txt`. On
-subsequent runs, already-downloaded videos are skipped automatically. To force
-a full re-download, delete the archive:
+Downloaded video IDs are recorded in `~/.yt-dlp-archive.txt`. On subsequent
+runs, already-downloaded videos are skipped automatically. To force a full
+re-download, delete the archive:
 
 ```bash
-rm ~/.yt-dlp-carnatic-archive.txt
+rm ~/.yt-dlp-archive.txt
 ```
 
 ## Writing a config
@@ -69,7 +69,8 @@ automatically — no other file needs to change.
 
 ```python
 # configs/hindustani.py
-from channel import Channel, DownloadConfig
+from channel import Channel
+from config import DownloadConfig
 
 CONFIG = DownloadConfig(
     name="hindustani",
@@ -88,7 +89,7 @@ CONFIG = DownloadConfig(
 
 ```python
 # configs/my_playlist.py
-from channel import DownloadConfig
+from config import DownloadConfig
 
 CONFIG = DownloadConfig(
     name="my-playlist",
@@ -127,7 +128,8 @@ CONFIG = DownloadConfig(
 **Custom artist pattern** — for channels that use `"Artist | Concert"` instead of `"Artist - Concert"`:
 
 ```python
-from channel import Channel, DownloadConfig
+from channel import Channel
+from config import DownloadConfig
 
 CUSTOM = Channel(handle="@SomeChannel", artist_match=[r"^(.*?) \|"])
 
@@ -140,6 +142,21 @@ CONFIG = DownloadConfig(
     output="audio",
 )
 ```
+
+**Artist aliases** — map variant spellings to a canonical name used in folder names and ID3 tags:
+
+```python
+CONFIG = DownloadConfig(
+    name="carnatic",
+    ...
+    artist_aliases={
+        "Narayanaswami": "Narayanaswamy",   # post-normalization key → canonical value
+    },
+)
+```
+
+Aliases are applied after `normalize_initials()` runs on the extracted name, so keys
+should use the merged-initials form (e.g. `"KV Narayanaswamy"`, not `"K V Narayanaswamy"`).
 
 The `genre` on `DownloadConfig` is inherited by all channels listed as bare strings.
 A full `Channel(...)` object is only needed when overriding `artist_match` or

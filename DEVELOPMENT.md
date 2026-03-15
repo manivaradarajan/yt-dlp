@@ -7,7 +7,9 @@
 | `channel.py` | `Channel` dataclass — handle, genre, artist/track extraction, playlist URLs |
 | `config.py` | `DownloadConfig` dataclass — named job bundling channels, filters, and output mode |
 | `configs/carnatic.py` | Carnatic music download config; exports `CONFIG: DownloadConfig` |
-| `download.py` | CLI entry point; discovers configs, configures yt-dlp and postprocessors |
+| `download.py` | CLI entry point; discovers configs, builds yt-dlp options, orchestrates the run |
+| `postprocessors.py` | yt-dlp `PostProcessor` subclasses for the download pipeline |
+| `clipping.py` | Broadcast detection and time-range clipping for single-video downloads |
 | `metadata_processor.py` | `SetFileMetadata` postprocessor — writes ID3 tags via mutagen |
 
 The pipeline has four stages:
@@ -15,7 +17,9 @@ The pipeline has four stages:
 1. **Config** (`configs/*.py`) — each file exports a `CONFIG: DownloadConfig` object bundling channels, title filters, and output mode.
 2. **Download** (`download.py`) — CLI entry point. Discovers configs automatically, configures yt-dlp with postprocessors (thumbnail conversion, MP3 extraction, chapter splitting), and dispatches to channel or single-video mode.
 3. **Channel metadata** (`channel.py`) — `Channel` holds regex patterns for extracting artist, track number, and year from filenames. `song_metadata()` returns a `SongMetadata` dataclass.
-4. **Postprocessing** (`metadata_processor.py`) — `SetFileMetadata` is a yt-dlp `PostProcessor`. After download it iterates over the main file and any chapter files, looks up the registered channel handler, and writes ID3 tags via mutagen.
+4. **Postprocessing** — two postprocessor files handle the pipeline after download:
+   - `postprocessors.py` — `WriteDescriptionAsTxt`, `WriteChapterPlaylist`, `DeleteUnsplitAudio`, `DeletePlaylistThumbnail`, `InjectArtistMetadata`
+   - `metadata_processor.py` — `SetFileMetadata` writes ID3 tags via mutagen
 
 ## Logging design
 
@@ -135,8 +139,8 @@ uv run pytest
 
 Tests cover pure helper functions and dataclass logic — no network calls or file I/O:
 
-- `tests/test_channel.py` — `Channel.song_metadata()` and `Channel.url`
-- `tests/test_download.py` — `parse_time`, `make_title_filter`, `video_format`, `configure_video_mode`, `load_configs`, `resolve_configs`, `WriteChapterPlaylist`, `DeleteUnsplitAudio`
+- `tests/test_channel.py` — `Channel.song_metadata()`, `Channel.urls`, `normalize_initials()`
+- `tests/test_download.py` — `parse_time` (clipping), `make_title_filter`, `video_format`, `configure_video_mode`, `load_configs`, `resolve_configs`, `WriteChapterPlaylist`, `DeleteUnsplitAudio`, `WriteDescriptionAsTxt`, `InjectArtistMetadata`
 - `tests/test_metadata_processor.py` — `_normalize_handle`, `SetFileMetadata` chapters-None guard
 
 yt-dlp download behaviour, ffmpeg postprocessing, and mutagen tag writing are not covered by the test suite.
