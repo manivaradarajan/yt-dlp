@@ -11,16 +11,21 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent.parent))
 
 import pytest
 
+from channel import Channel
+from clipping import parse_time
 from download import (
     OPTIONS,
-    DeleteUnsplitAudio,
-    WriteChapterPlaylist,
     configure_video_mode,
     load_configs,
     make_title_filter,
-    parse_time,
     resolve_configs,
     video_format,
+)
+from postprocessors import (
+    DeleteUnsplitAudio,
+    InjectArtistMetadata,
+    WriteChapterPlaylist,
+    WriteDescriptionAsTxt,
 )
 
 # ---------------------------------------------------------------------------
@@ -165,6 +170,34 @@ def test_resolve_configs_duplicate_allowed():
 
 
 # ---------------------------------------------------------------------------
+# WriteDescriptionAsTxt — txt placement
+# ---------------------------------------------------------------------------
+
+
+def test_txt_path_no_chapters_is_alongside_audio():
+    """Without chapters the .txt is next to the audio file."""
+    pp = WriteDescriptionAsTxt()
+    result = pp._txt_path("/out/Artist/Concert.mp3", chapters=None)
+    assert result == "/out/Artist/Concert.txt"
+
+
+def test_txt_path_with_chapters_goes_inside_album_dir():
+    """With chapter filepaths the .txt lands inside the chapter directory."""
+    pp = WriteDescriptionAsTxt()
+    chapters = [{"filepath": "/out/Artist/Concert/01 Track.mp3"}]
+    result = pp._txt_path("/out/Artist/Concert.mp3", chapters=chapters)
+    assert result == "/out/Artist/Concert/Concert.txt"
+
+
+def test_txt_path_chapters_without_filepath_treated_as_no_split():
+    """Chapters list whose entries lack filepath is treated like no split."""
+    pp = WriteDescriptionAsTxt()
+    chapters = [{"title": "Intro"}]  # no "filepath" key
+    result = pp._txt_path("/out/Artist/Concert.mp3", chapters=chapters)
+    assert result == "/out/Artist/Concert.txt"
+
+
+# ---------------------------------------------------------------------------
 # WriteChapterPlaylist — chapters=None guard
 # ---------------------------------------------------------------------------
 
@@ -202,3 +235,136 @@ def test_delete_unsplit_audio_chapters_absent():
     pp = DeleteUnsplitAudio()
     files_to_delete, _ = pp.run({**_BASE_INFO})
     assert files_to_delete == []
+
+
+# ---------------------------------------------------------------------------
+# InjectArtistMetadata — channel lookup and artist extraction
+# ---------------------------------------------------------------------------
+
+_CHANNEL = Channel(handle="@TestChannel", genre="Carnatic")
+_CHANNEL_MAP = {"@TestChannel": _CHANNEL}
+
+
+def _make_inject_pp(
+    artist_aliases: dict | None = None, verbose: bool = False
+) -> InjectArtistMetadata:
+    """Return an InjectArtistMetadata instance with a single test channel."""
+    return InjectArtistMetadata(
+        _CHANNEL_MAP, artist_aliases=artist_aliases, verbose=verbose
+    )
+
+
+def test_inject_artist_via_uploader_id():
+    """Artist is extracted when uploader_id matches a registered handle."""
+    pp = _make_inject_pp()
+    _, info = pp.run(
+        {"title": "Ariyakudi - Concert 1950", "uploader_id": "@TestChannel"}
+    )
+    assert info["artist"] == "Ariyakudi"
+
+
+def test_inject_artist_uploader_id_missing_at():
+    """uploader_id without leading @ is normalised and still resolves."""
+    pp = _make_inject_pp()
+    _, info = pp.run(
+        {"title": "Ariyakudi - Concert 1950", "uploader_id": "TestChannel"}
+    )
+    assert info["artist"] == "Ariyakudi"
+
+
+def test_inject_artist_via_channel_url_fallback():
+    """Artist is extracted via channel_url when uploader_id is a UC-style ID."""
+    pp = _make_inject_pp()
+    _, info = pp.run(
+        {
+            "title": "Ariyakudi - Concert 1950",
+            "uploader_id": "UCxxxxxxxxxxxxxxxxxxxxxx",
+            "channel_url": "https://www.youtube.com/@TestChannel",
+            "uploader": "Test Channel Display Name",
+        }
+    )
+    assert info["artist"] == "Ariyakudi"
+
+
+def test_inject_artist_no_channel_falls_back_to_uploader():
+    """Falls back to the uploader display name when no handler is registered."""
+    pp = _make_inject_pp()
+    _, info = pp.run(
+        {
+            "title": "Some Video",
+            "uploader_id": "@UnknownChannel",
+            "channel_url": "https://www.youtube.com/@UnknownChannel",
+            "uploader": "Unknown Channel",
+        }
+    )
+    assert info["artist"] == "Unknown Channel"
+
+
+def test_inject_artist_pattern_no_match_falls_back_to_uploader():
+    """Falls back to uploader when channel is found but title doesn't match pattern."""
+    pp = _make_inject_pp()
+    # Default pattern r"^(.*?) -" won't match a title with no " - " separator.
+    _, info = pp.run(
+        {
+            "title": "NoSeparatorHere",
+            "uploader_id": "@TestChannel",
+            "uploader": "Test Channel Display Name",
+        }
+    )
+    assert info["artist"] == "Test Channel Display Name"
+
+
+def test_inject_artist_verbose_logs_success(capsys):
+    """Verbose mode prints an [artist] line on successful extraction."""
+    pp = _make_inject_pp(verbose=True)
+    pp.run({"title": "Ariyakudi - Concert 1950", "uploader_id": "@TestChannel"})
+    assert "[artist]" in capsys.readouterr().out
+
+
+def test_inject_artist_verbose_logs_fallback(capsys):
+    """Verbose mode prints an [artist] line when falling back to uploader."""
+    pp = _make_inject_pp(verbose=True)
+    pp.run(
+        {
+            "title": "Some Video",
+            "uploader_id": "@UnknownChannel",
+            "uploader": "Unknown Channel",
+        }
+    )
+    assert "[artist]" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# InjectArtistMetadata — artist alias application
+# ---------------------------------------------------------------------------
+
+
+def test_inject_artist_alias_applied():
+    """Alias map entry is used when the extracted artist matches a key."""
+    pp = _make_inject_pp(artist_aliases={"Ariyakudi": "Ariyakudi Ramanuja Iyengar"})
+    _, info = pp.run(
+        {"title": "Ariyakudi - Concert 1950", "uploader_id": "@TestChannel"}
+    )
+    assert info["artist"] == "Ariyakudi Ramanuja Iyengar"
+
+
+def test_inject_artist_alias_not_applied_when_no_match():
+    """Artist is returned unchanged when it is not present in the alias map."""
+    pp = _make_inject_pp(artist_aliases={"Someone Else": "Canonical Name"})
+    _, info = pp.run(
+        {"title": "Ariyakudi - Concert 1950", "uploader_id": "@TestChannel"}
+    )
+    assert info["artist"] == "Ariyakudi"
+
+
+def test_inject_artist_alias_applied_on_fallback():
+    """Alias is applied even when the artist comes from the uploader fallback."""
+    pp = _make_inject_pp(artist_aliases={"Unknown Channel": "Canonical Name"})
+    _, info = pp.run(
+        {
+            "title": "NoSeparatorHere",
+            "uploader_id": "@TestChannel",
+            "uploader": "Unknown Channel",
+        }
+    )
+    assert info["artist"] == "Canonical Name"

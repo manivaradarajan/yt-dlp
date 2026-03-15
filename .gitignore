@@ -9,6 +9,11 @@ __pycache__/
 
 # Output
 out/
+test-carnatic/
+
+# Local tooling
+.claude/
+.vscode/
 
 # OS
 .DS_Store

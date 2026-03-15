@@ -7,6 +7,9 @@ or single-video mode (``--url``) depending on CLI arguments.
 Config discovery: every ``configs/*.py`` file that exports a module-level
 ``CONFIG: DownloadConfig`` is loaded automatically.  No changes to this file
 are needed when adding a new config.
+
+PostProcessor classes live in ``postprocessors.py``.
+Broadcast detection and clipping helpers are in ``clipping.py``.
 """
 
 import argparse
@@ -18,19 +21,26 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import sys
 
 import yt_dlp
-from yt_dlp.postprocessor.common import PostProcessor
 
 from channel import Channel
+from clipping import (
+    CaptureFinalFilepath,
+    configure_clip_options,
+    remove_postprocessor,
+    run_post_clip,
+)
 from config import DownloadConfig
 from metadata_processor import SetFileMetadata
-
-# yt-dlp live_status values that indicate a broadcast/DVR stream.
-# These streams use DASH/DVR format and don't support mid-stream seeking.
-_BROADCAST_LIVE_STATUSES = ("is_live", "was_live", "post_live")
+from postprocessors import (
+    DeletePlaylistThumbnail,
+    DeleteUnsplitAudio,
+    InjectArtistMetadata,
+    WriteChapterPlaylist,
+    WriteDescriptionAsTxt,
+)
 
 # Persists last-download dates per config name across runs.
 _STATE_FILE = pathlib.Path.home() / ".yt-dlp-state.json"
@@ -116,271 +126,6 @@ def _make_progress_hook():
     return _hook
 
 
-def parse_time(t: str) -> float:
-    """Convert a time string to seconds.
-
-    Args:
-        t: Time string in HH:MM:SS, MM:SS, or raw seconds format.
-
-    Returns:
-        The time in seconds as a float.
-    """
-    parts = t.split(":")
-    return sum(float(p) * 60**i for i, p in enumerate(reversed(parts)))
-
-
-def clip_file(filepath: str, start: str | None, end: str | None) -> None:
-    """Clip a media file to the given time range using ffmpeg, replacing the original in-place.
-
-    Args:
-        filepath: Path to the media file to clip.
-        start: Clip start time (HH:MM:SS), or None to start from the beginning.
-        end: Clip end time (HH:MM:SS), or None to clip to the end.
-    """
-    base, ext = os.path.splitext(filepath)
-    tmp_path = f"{base}_clip{ext}"
-    # Both -ss and -to must be input options (before -i) so they are treated as
-    # absolute timestamps in the source file. If -to is placed after -i it becomes
-    # an output option and is interpreted as a duration from the start of output.
-    cmd = ["ffmpeg", "-y"]
-    if start:
-        cmd += ["-ss", start]
-    if end:
-        cmd += ["-to", end]
-    cmd += ["-i", filepath, "-c", "copy", tmp_path]  # stream-copy: no re-encode
-    subprocess.run(cmd, check=True)
-    os.replace(tmp_path, filepath)
-
-
-class CaptureFinalFilepath(PostProcessor):
-    """yt-dlp PostProcessor that records the output filepath after all processing.
-
-    Used in the broadcast fallback path so we know which file to clip with ffmpeg.
-    """
-
-    def __init__(self):
-        super().__init__(None)
-        self.filepaths: list[str] = []
-
-    def run(self, info):
-        """Append the current filepath to self.filepaths and pass info through unchanged.
-
-        Args:
-            info: yt-dlp info dictionary for the current file.
-
-        Returns:
-            A tuple of ([], info) as required by the PostProcessor interface.
-        """
-        fp = info.get("filepath") or info.get("filename")
-        if fp:
-            self.filepaths.append(fp)
-        return [], info
-
-
-class WriteDescriptionAsTxt(PostProcessor):
-    """Writes the YouTube video description to a .txt file alongside the downloaded file.
-
-    yt-dlp's built-in writedescription always produces a .description file with no way
-    to change the extension, so we handle it ourselves here.
-    """
-
-    def run(self, info):
-        """Write description to <filepath_base>.txt.
-
-        Args:
-            info: yt-dlp info dictionary for the current file.
-
-        Returns:
-            A tuple of ([], info) as required by the PostProcessor interface.
-        """
-        filepath = info.get("filepath") or info.get("filename", "")
-        description = info.get("description", "")
-        if not filepath or not description:
-            return [], info
-        base, _ = os.path.splitext(filepath)
-        with open(base + ".txt", "w", encoding="utf-8") as f:
-            f.write(description)
-        return [], info
-
-
-class WriteChapterPlaylist(PostProcessor):
-    """Writes an M3U8 playlist for chapter-split audio files.
-
-    Creates ``<chapter-dir>/<dir-name>.m3u8`` with one ``#EXTINF`` entry per
-    chapter.  Only runs when the info dict contains chapters that have been
-    assigned filepaths by ``FFmpegSplitChapters``.
-
-    When a split occurs, the unsplit original file is added to the
-    ``files_to_delete`` return value so yt-dlp removes it automatically.
-    Videos without chapters are unaffected.
-    """
-
-    def run(self, info):
-        """Write the M3U8 playlist file and schedule the original for deletion.
-
-        Args:
-            info: yt-dlp info dictionary for the current file.
-
-        Returns:
-            A tuple of (files_to_delete, info). ``files_to_delete`` contains
-            the original unsplit filepath when chapters were split, otherwise
-            it is empty.
-        """
-        # Capture before any chapter logic so we can return it for deletion.
-        original_filepath = info.get("filepath", "")
-
-        chapters = [c for c in (info.get("chapters") or []) if c.get("filepath")]
-        if not chapters:
-            return [], info
-
-        chapter_dir = os.path.dirname(chapters[0]["filepath"])
-        playlist_path = self._playlist_path(chapter_dir)
-        lines = self._build_m3u8_lines(chapters)
-        with open(playlist_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-
-        # Delete the unsplit original — chapter files are the canonical output.
-        files_to_delete = [original_filepath] if original_filepath else []
-        return files_to_delete, info
-
-    def _playlist_path(self, chapter_dir: str) -> str:
-        """Return the playlist filepath inside the chapter directory.
-
-        Uses the directory name (already sanitized by yt-dlp) as the filename.
-
-        Args:
-            chapter_dir: Directory containing the chapter MP3 files.
-
-        Returns:
-            Absolute path to the ``.m3u8`` file.
-        """
-        name = os.path.basename(chapter_dir)
-        return os.path.join(chapter_dir, f"{name}.m3u8")
-
-    def _build_m3u8_lines(self, chapters: list) -> list[str]:
-        """Build the M3U8 file lines for the given chapter list.
-
-        Args:
-            chapters: List of chapter dicts with ``filepath``, ``start_time``,
-                and ``end_time`` keys.
-
-        Returns:
-            List of strings to join with newlines.
-        """
-        lines = ["#EXTM3U"]
-        for chapter in chapters:
-            filepath = chapter["filepath"]
-            duration = int(chapter.get("end_time", 0) - chapter.get("start_time", 0))
-            title = os.path.splitext(os.path.basename(filepath))[0]
-            lines.append(f"#EXTINF:{duration},{title}")
-            lines.append(os.path.basename(filepath))
-        return lines
-
-
-class DeleteUnsplitAudio(PostProcessor):
-    """Removes the original unsplit MP3 after chapter splitting succeeds.
-
-    When ``FFmpegSplitChapters`` runs it produces per-chapter files inside a
-    subdirectory but leaves the original full-length file alongside them.
-    This postprocessor instructs yt-dlp to delete that redundant file by
-    returning it in the files-to-delete list.
-
-    No-op when the video has no chapters or splitting was not performed.
-    """
-
-    def run(self, info):
-        """Delete the unsplit file if chapter filepaths were produced.
-
-        Args:
-            info: yt-dlp info dictionary for the current file.
-
-        Returns:
-            A tuple of ([filepath_to_delete], info) when chapters were split,
-            or ([], info) when splitting did not occur.
-        """
-        chapters = [c for c in (info.get("chapters") or []) if c.get("filepath")]
-        if not chapters:
-            return [], info
-        return [info["filepath"]], info
-
-
-class DeletePlaylistThumbnail(PostProcessor):
-    """Deletes the channel-avatar JPG written for the playlist container entry.
-
-    ``writethumbnail=True`` causes yt-dlp to download a thumbnail for the
-    playlist container itself (the YouTube channel avatar).  Since there is no
-    audio file to embed it into, ``EmbedThumbnailPP`` never runs on it and the
-    file is never cleaned up.  This postprocessor removes it at the playlist
-    phase, after yt-dlp has finished writing it to disk.
-
-    The written path is stored in ``thumbnails[n]["filepath"]`` by the time the
-    playlist phase fires.
-    """
-
-    def run(self, info):
-        """Delete any thumbnail files written for this playlist entry.
-
-        Args:
-            info: yt-dlp info dictionary for the playlist container.
-
-        Returns:
-            A tuple of ([], info) as required by the PostProcessor interface.
-        """
-        for thumb in info.get("thumbnails") or []:
-            filepath = thumb.get("filepath")
-            if filepath and os.path.isfile(filepath):
-                os.remove(filepath)
-        return [], info
-
-
-class InjectArtistMetadata(PostProcessor):
-    """Pre-process postprocessor that injects an ``artist`` field into the info dict.
-
-    Runs *before* yt-dlp evaluates outtmpl, so the ``%(artist)s`` placeholder
-    resolves to a meaningful directory name.  Falls back to the YouTube uploader
-    name when no channel handler is registered or the title pattern does not match.
-    """
-
-    def __init__(self, channel_map: dict):
-        """Initialise with a handle → Channel lookup dict.
-
-        Args:
-            channel_map: Maps YouTube handle strings (e.g. ``@CarnaticConnect``)
-                to their :class:`Channel` instances.
-        """
-        super().__init__(None)
-        self._channel_map = channel_map
-
-    def run(self, info):
-        """Inject ``info["artist"]`` before outtmpl evaluation.
-
-        Looks up the channel handler by ``uploader_id``, calls
-        ``_extract_artist`` on the video title, and falls back to the YouTube
-        uploader name when no match is found so the field is never empty.
-
-        Args:
-            info: yt-dlp info dictionary for the current video.
-
-        Returns:
-            A tuple of ([], info) as required by the PostProcessor interface.
-        """
-        title = info.get("title", "")
-        uploader_id = info.get("uploader_id", "")
-        # yt-dlp sometimes omits the leading @ — normalise before lookup.
-        handle = uploader_id if uploader_id.startswith("@") else f"@{uploader_id}"
-        channel = self._channel_map.get(handle)
-
-        if channel:
-            artist = channel._extract_artist(title)
-            if artist:
-                info["artist"] = artist
-                return [], info
-
-        # Fall back to uploader name so %(artist)s is always non-empty.
-        info["artist"] = info.get("uploader") or handle or "Unknown"
-        return [], info
-
-
 def _find_js_runtimes() -> dict:
     """Locate available JS runtimes and return a yt-dlp ``js_runtimes`` dict.
 
@@ -424,7 +169,7 @@ OPTIONS = {
             "add_metadata": True,
             "key": "FFmpegMetadata",
         },
-        {"already_have_thumbnail": True, "key": "EmbedThumbnail"},
+        {"already_have_thumbnail": False, "key": "EmbedThumbnail"},
         {"force_keyframes": False, "key": "FFmpegSplitChapters"},
         {"key": "FFmpegConcat", "only_multi_video": True, "when": "playlist"},
     ],
@@ -718,48 +463,6 @@ def _channel_mode_outtmpl(output_dir: str, config_name: str, prefix: str) -> dic
     }
 
 
-def probe_video(url: str) -> dict:
-    """Fetch video metadata from YouTube without downloading.
-
-    Args:
-        url: YouTube video URL.
-
-    Returns:
-        yt-dlp info dictionary for the video.
-    """
-    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True}) as ydl:
-        return ydl.extract_info(url, download=False)
-
-
-def video_is_broadcast(info: dict) -> bool:
-    """Return True if the video is a live or DVR broadcast stream.
-
-    Args:
-        info: yt-dlp info dictionary for the video.
-
-    Returns:
-        True if the video is a broadcast/DVR stream.
-    """
-    live_status = info.get("live_status", "")
-    return (
-        live_status in _BROADCAST_LIVE_STATUSES
-        or bool(info.get("is_live"))
-        or bool(info.get("was_live"))
-    )
-
-
-def remove_postprocessor(options: dict, key: str) -> None:
-    """Remove a postprocessor by key from the options dict in-place.
-
-    Args:
-        options: yt-dlp options dict.
-        key: The postprocessor key to remove (e.g. "FFmpegExtractAudio").
-    """
-    options["postprocessors"] = [
-        pp for pp in options["postprocessors"] if pp["key"] != key
-    ]
-
-
 def video_format(max_height: str | None) -> str:
     """Return a yt-dlp format selector for video, optionally capped at a resolution.
 
@@ -787,91 +490,6 @@ def configure_video_mode(options: dict, max_height: str | None = None) -> None:
     options["format"] = video_format(max_height)
     del options["final_ext"]
     remove_postprocessor(options, "FFmpegExtractAudio")
-
-
-def configure_direct_clip(options: dict, start: str | None, end: str | None) -> None:
-    """Configure yt-dlp to download only the specified time range during download.
-
-    Args:
-        options: yt-dlp options dict to modify.
-        start: Clip start time (HH:MM:SS), or None for the beginning.
-        end: Clip end time (HH:MM:SS), or None for the end.
-    """
-    start_sec = parse_time(start) if start else 0.0
-    end_sec = parse_time(end) if end else float("inf")
-    options["download_ranges"] = lambda info, ydl: [
-        {"start_time": start_sec, "end_time": end_sec}
-    ]
-    options["force_keyframes_at_cuts"] = True
-    print(f"  Downloading clip {start or 'start'} → {end or 'end'}...")
-
-
-def configure_broadcast_fallback(
-    options: dict, title: str, is_video: bool
-) -> CaptureFinalFilepath:
-    """Configure options to download the full broadcast; clipping happens afterward via ffmpeg.
-
-    Args:
-        options: yt-dlp options dict to modify.
-        title: Video title, used for user-facing messages.
-        is_video: True if downloading video, False for audio.
-
-    Returns:
-        A CaptureFinalFilepath instance to register as a postprocessor,
-        so the output filepath is available for ffmpeg clipping.
-    """
-    media_type = "video" if is_video else "audio"
-    print(f"  '{title}' is a live/DVR broadcast.")
-    print(
-        f"  YouTube's DASH/DVR format doesn't support mid-stream seeking,"
-        f" so the full {media_type} must be downloaded first."
-    )
-    print(f"  Step 1/2: Downloading full {media_type}...")
-    # Chapter splitting doesn't make sense for a range we'll clip afterward.
-    remove_postprocessor(options, "FFmpegSplitChapters")
-    return CaptureFinalFilepath()
-
-
-def configure_clip_options(
-    options: dict, url: str, start: str | None, end: str | None, is_video: bool
-) -> CaptureFinalFilepath | None:
-    """Probe the URL and configure clipping based on whether it's a broadcast or regular video.
-
-    Args:
-        options: yt-dlp options dict to modify.
-        url: YouTube video URL to probe.
-        start: Clip start time (HH:MM:SS), or None.
-        end: Clip end time (HH:MM:SS), or None.
-        is_video: True if downloading video, False for audio.
-
-    Returns:
-        A CaptureFinalFilepath instance for broadcast streams (clipped post-download),
-        or None for regular videos (clipped during download via download_ranges).
-    """
-    print("Checking video info...")
-    info = probe_video(url)
-    if video_is_broadcast(info):
-        return configure_broadcast_fallback(options, info.get("title", url), is_video)
-    configure_direct_clip(options, start, end)
-    return None
-
-
-def run_post_clip(
-    capturer: CaptureFinalFilepath, start: str | None, end: str | None
-) -> None:
-    """Clip all files captured during download to the given time range using ffmpeg.
-
-    Args:
-        capturer: PostProcessor instance that recorded downloaded filepaths.
-        start: Clip start time (HH:MM:SS), or None for the beginning.
-        end: Clip end time (HH:MM:SS), or None for the end.
-    """
-    clip_range = f"{start or 'start'} → {end or 'end'}"
-    print(f"\nStep 2/2: Clipping {clip_range} using ffmpeg...")
-    for fp in capturer.filepaths:
-        print(f"  Clipping '{fp}'...")
-        clip_file(fp, start, end)
-        print(f"  Done.")
 
 
 def _setup_single_video(
@@ -910,7 +528,7 @@ def _setup_single_video(
 
 def _setup_channel_mode(
     args: argparse.Namespace, options: dict
-) -> tuple[list[Channel], list[str], list[str]]:
+) -> tuple[list[Channel], list[str], list[str], dict[str, str]]:
     """Load named configs and configure options for channel download mode.
 
     Args:
@@ -918,7 +536,8 @@ def _setup_channel_mode(
         options: yt-dlp options dict to modify in-place.
 
     Returns:
-        Tuple of (channels, urls, config_names).
+        Tuple of (channels, urls, config_names, artist_aliases).
+        ``artist_aliases`` is the merged alias map from all selected configs.
     """
     if not args.channels:
         build_arg_parser().error("--channels is required when not using --url")
@@ -940,7 +559,8 @@ def _setup_channel_mode(
 
     all_urls = [url for ch in all_channels for url in ch.urls]
     all_urls += [url for cfg in configs for url in cfg.urls]
-    return all_channels, all_urls, [cfg.name for cfg in configs]
+    all_aliases = {k: v for cfg in configs for k, v in cfg.artist_aliases.items()}
+    return all_channels, all_urls, [cfg.name for cfg in configs], all_aliases
 
 
 def download_videos():
@@ -966,10 +586,11 @@ def download_videos():
     capturer = None
 
     config_names = []
+    all_aliases: dict[str, str] = {}
     if args.url:
         capturer, channels, urls = _setup_single_video(args, options)
     else:
-        channels, urls, config_names = _setup_channel_mode(args, options)
+        channels, urls, config_names, all_aliases = _setup_channel_mode(args, options)
         if config_names:
             # Switch to <output>/<config-name>/<artist>/<title>/ layout.
             # outtmpl must be updated before YoutubeDL is constructed.
@@ -981,14 +602,21 @@ def download_videos():
         print("Fetching channel playlist...")
 
     ydl = yt_dlp.YoutubeDL(options)
-    ydl.add_post_processor(SetFileMetadata(channels=channels))
+    ydl.add_post_processor(
+        SetFileMetadata(channels=channels, artist_aliases=all_aliases)
+    )
     ydl.add_post_processor(WriteDescriptionAsTxt())
     ydl.add_post_processor(WriteChapterPlaylist())
     ydl.add_post_processor(DeleteUnsplitAudio())
     if config_names:
         # Inject %(artist)s before outtmpl is evaluated (pre_process phase).
         channel_map = {ch.handle: ch for ch in channels}
-        ydl.add_post_processor(InjectArtistMetadata(channel_map), when="pre_process")
+        ydl.add_post_processor(
+            InjectArtistMetadata(
+                channel_map, artist_aliases=all_aliases, verbose=args.verbose
+            ),
+            when="pre_process",
+        )
         # Remove the channel-avatar thumbnail that writethumbnail=True writes for
         # the playlist container entry (no audio file → EmbedThumbnailPP never runs).
         ydl.add_post_processor(DeletePlaylistThumbnail(), when="playlist")
